@@ -328,6 +328,7 @@
           <div id="cloudStatus" style="margin:12px 0"></div>
           <div id="cloudConfigForm"></div>
           <div id="cloudActions" style="display:flex;gap:10px;flex-wrap:wrap;margin-top:8px"></div>
+          <div id="cloudSyncMsg" style="margin-top:12px;font-size:.85rem;min-height:1.2em"></div>
           <details style="margin-top:16px">
             <summary style="cursor:pointer;color:var(--accent);font-size:.85rem;font-weight:600">📖 ¿Cómo configurar Firebase? (paso a paso, gratis)</summary>
             <ol style="font-size:.83rem;color:var(--txt-dim);margin:12px 0 0 18px;line-height:1.8">
@@ -416,7 +417,12 @@
         <button id="tabRegister" onclick="authTab('register')">Crear cuenta</button>
       </div>
       <div class="field"><label>Correo electrónico</label><input type="email" id="authEmail" placeholder="tucorreo@ejemplo.com" autocomplete="username"></div>
-      <div class="field"><label>Contraseña</label><input type="password" id="authPass" placeholder="••••••••" autocomplete="current-password" onkeydown="if(event.key==='Enter')authSubmit()"></div>
+      <div class="field"><label>Contraseña</label>
+        <div style="position:relative">
+          <input type="password" id="authPass" placeholder="••••••••" autocomplete="current-password" style="padding-right:46px" onkeydown="if(event.key==='Enter')authSubmit()">
+          <button type="button" id="authPassToggle" onclick="togglePass()" title="Mostrar/ocultar contraseña" style="position:absolute;right:6px;top:50%;transform:translateY(-50%);background:none;border:none;font-size:1.15rem;cursor:pointer;padding:4px 8px;line-height:1">👁️</button>
+        </div>
+      </div>
       <div id="authError" class="auth-error" style="display:none"></div>
       <button class="btn primary" id="authSubmit" style="width:100%;justify-content:center;margin-top:4px" onclick="authSubmit()">Entrar</button>
       <div style="text-align:center;margin:12px 0;color:var(--muted);font-size:.8rem">— o —</div>
@@ -990,7 +996,7 @@ function setLocalTs(ts){ localStorage.setItem(META_KEY,String(ts||Date.now())); 
 
 // El módulo de Firebase avisa cuando está listo
 window.onCloudReady=()=>{ if(cloudCfg) cloudConnect(); renderCloudUI(); };
-window.onCloudError=(m)=>{ toast('Nube: '+(m||'error')); };
+window.onCloudError=(m)=>{ const msg=fbErrMsg(m||'error'); toast('Nube: '+msg); cloudMsg(msg,'error'); };
 window.onCloudAuth=(u)=>{ cloudUser=u; initialSynced=false; renderCloudUI();
   if(u&&window.CloudSync){
     document.getElementById('authGate').classList.remove('open');   // entrar: ocultar pantalla de acceso
@@ -1023,7 +1029,8 @@ function cloudInitialSync(uid){
       cloudPushNow();                  // lo local es más nuevo (o la nube está vacía) → subirlo
     }
     initialSynced=true;
-  }).catch(e=>{ initialSynced=true; window.onCloudError(e.message); });
+    cloudMsg('Conectado y sincronizado ('+new Date().toLocaleTimeString(S.currency.locale)+').','ok');
+  }).catch(e=>{ initialSynced=true; window.onCloudError(e.code||e.message); });
 }
 
 // Aplica datos remotos al estado local
@@ -1098,9 +1105,17 @@ function fbErrMsg(code){
     'auth/unauthorized-domain':'Dominio no autorizado. Agrégalo en Firebase → Authentication → Settings → Authorized domains.',
     'auth/popup-blocked':'El navegador bloqueó la ventana emergente. Permítela e inténtalo otra vez.',
     'auth/popup-closed-by-user':'Cerraste la ventana de Google antes de terminar.',
-    'auth/network-request-failed':'Sin conexión a internet. Revisa tu red.'
+    'auth/network-request-failed':'Sin conexión a internet. Revisa tu red.',
+    // Errores de Firestore (base de datos)
+    'permission-denied':'PERMISO DENEGADO por Firestore. Debes publicar las Reglas de seguridad (Rules) en Firebase → Firestore → Reglas. Ver el README.',
+    'insufficient permissions':'PERMISO DENEGADO por Firestore. Publica las Reglas de seguridad (Rules) en Firebase → Firestore → Reglas. Ver el README.',
+    'unauthenticated':'Tu sesión no es válida. Cierra sesión y vuelve a entrar.',
+    'unavailable':'Firestore no está disponible ahora (¿sin conexión?). Reintenta en un momento.',
+    'not-found':'No se encontró la base de datos. ¿Creaste "Firestore Database" en Firebase?',
+    'failed-precondition':'Falta habilitar/configurar Firestore Database en tu proyecto de Firebase.'
   };
-  for(const k in map){ if(code.includes(k)) return map[k]; }
+  code=String(code);
+  for(const k in map){ if(code.toLowerCase().includes(k.toLowerCase())) return map[k]; }
   return 'Error: '+code;
 }
 function authSubmit(){
@@ -1122,18 +1137,25 @@ function authReset(){
   window.CloudSync.resetPassword(email).then(()=>{authErr('');toast('Te enviamos un correo para restablecer tu contraseña 📧');}).catch(e=>authErr(fbErrMsg(e.code||e.message)));
 }
 function authLocalMode(){ document.getElementById('authGate').classList.remove('open'); }
+function togglePass(){ const i=document.getElementById('authPass'),b=document.getElementById('authPassToggle'); if(!i)return; if(i.type==='password'){i.type='text';b.textContent='🙈';}else{i.type='password';b.textContent='👁️';} }
+// Mensaje de estado PERMANENTE de sincronización (no desaparece como el toast)
+function cloudMsg(text,type){ const el=document.getElementById('cloudSyncMsg'); if(!el)return; if(!text){el.innerHTML='';return;}
+  const col=type==='error'?'var(--red)':type==='ok'?'var(--green)':'var(--muted)'; const icon=type==='error'?'⛔':type==='ok'?'✅':'⏳';
+  el.innerHTML=`<span style="color:${col}">${icon} ${text}</span>`;
+}
 function cloudMaybePush(){ if(cloudUser&&!applyingRemote&&window.CloudSync){ cloudDirty=true; if(initialSynced){ clearTimeout(pushTimer); pushTimer=setTimeout(cloudPushNow,700); } } }
 function cloudPushNow(){
   if(!cloudUser||!window.CloudSync) return;
   const ts=Date.now(); setLocalTs(ts);
-  window.CloudSync.push(cloudUser.uid,S,ts,SESSION_ID).then(()=>{ cloudDirty=false; lastAppliedAt=ts; lastSyncTime=ts; renderCloudUI(); }).catch(e=>window.onCloudError(e.message));
+  window.CloudSync.push(cloudUser.uid,S,ts,SESSION_ID).then(()=>{ cloudDirty=false; lastAppliedAt=ts; lastSyncTime=ts; renderCloudUI(); cloudMsg('Datos guardados en la nube ('+new Date().toLocaleTimeString(S.currency.locale)+').','ok'); }).catch(e=>window.onCloudError(e.code||e.message));
 }
 function cloudSyncNow(){
-  if(!cloudUser||!window.CloudSync){toast('Inicia sesión primero');return;}
+  if(!cloudUser||!window.CloudSync){toast('Inicia sesión primero');cloudMsg('No has iniciado sesión en la nube.','error');return;}
+  cloudMsg('Sincronizando...','info');
   window.CloudSync.pull(cloudUser.uid).then(cloud=>{
-    if(cloud && cloud.state && (cloud.updatedAt||0) > getLocalTs()){ applyRemote(cloud,false); toast('Datos traídos de la nube ☁️'); }
+    if(cloud && cloud.state && (cloud.updatedAt||0) > getLocalTs()){ applyRemote(cloud,false); cloudMsg('Datos traídos de la nube ('+new Date().toLocaleTimeString(S.currency.locale)+').','ok'); toast('Datos traídos de la nube ☁️'); }
     else { cloudPushNow(); toast('Datos enviados a la nube ☁️'); }
-  }).catch(e=>window.onCloudError(e.message));
+  }).catch(e=>window.onCloudError(e.code||e.message));
 }
 function saveCloudCfg(){
   const get=k=>{const el=document.getElementById('fb_'+k);return el?el.value.trim():'';};
@@ -1223,7 +1245,7 @@ applyTheme();renderAll();authGateInit();
       if(unsub) unsub();
       unsub = onSnapshot(doc(db,'finanzas',uid),
         snap => window.onCloudData && window.onCloudData(snap.exists()? snap.data() : null),
-        err  => window.onCloudError && window.onCloudError(err.message));
+        err  => window.onCloudError && window.onCloudError(err.code||err.message));
     },
     async pull(uid){ const s = await getDoc(doc(db,'finanzas',uid)); return s.exists()? s.data() : null; },
     async push(uid, state, ts, writer){ await setDoc(doc(db,'finanzas',uid), {state, updatedAt:ts, writer:writer||''}); }
