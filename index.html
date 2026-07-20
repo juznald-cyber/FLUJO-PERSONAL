@@ -443,7 +443,7 @@ const defaultState=()=>({
 });
 let S=load();
 function load(){try{const r=JSON.parse(localStorage.getItem(KEY));return r?Object.assign(defaultState(),r):defaultState();}catch(e){return defaultState();}}
-function save(){localStorage.setItem(KEY,JSON.stringify(S));cloudMaybePush();}
+function save(){localStorage.setItem(KEY,JSON.stringify(S));if(!applyingRemote)setLocalTs(Date.now());cloudMaybePush();}
 const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,7);
 
 /* ============ Utilidades ============ */
@@ -981,33 +981,76 @@ function loadSample(){
 /* ============ Sincronización en la nube (Firebase) ============ */
 const CLOUD_KEY='miFlujo_fbConfig';
 let cloudCfg=(()=>{try{return JSON.parse(localStorage.getItem(CLOUD_KEY));}catch(e){return null;}})();
-let cloudUser=null, cloudInited=false, applyingRemote=false, lastPushedAt=0, lastSyncTime=0, pushTimer=null;
+const META_KEY='miFlujo_updatedAt';
+const SESSION_ID=Math.random().toString(36).slice(2)+Date.now().toString(36); // identifica a este dispositivo/sesión
+let cloudUser=null, cloudInited=false, applyingRemote=false, initialSynced=false;
+let lastAppliedAt=0, lastSyncTime=0, pushTimer=null, cloudDirty=false;
+function getLocalTs(){ return Number(localStorage.getItem(META_KEY))||0; }
+function setLocalTs(ts){ localStorage.setItem(META_KEY,String(ts||Date.now())); }
 
 // El módulo de Firebase avisa cuando está listo
 window.onCloudReady=()=>{ if(cloudCfg) cloudConnect(); renderCloudUI(); };
 window.onCloudError=(m)=>{ toast('Nube: '+(m||'error')); };
-window.onCloudAuth=(u)=>{ cloudUser=u; renderCloudUI();
+window.onCloudAuth=(u)=>{ cloudUser=u; initialSynced=false; renderCloudUI();
   if(u&&window.CloudSync){
     document.getElementById('authGate').classList.remove('open');   // entrar: ocultar pantalla de acceso
-    window.CloudSync.subscribe(u.uid);
     toast('Bienvenido '+(u.email||'usuario')+' ☁️');
+    window.CloudSync.subscribe(u.uid);   // escucha en vivo (aplica tras la reconciliación)
+    cloudInitialSync(u.uid);             // reconcilia local vs nube al entrar
   } else if(cloudCfg){
     // sin sesión pero con Firebase configurado: mostrar pantalla de acceso
     document.getElementById('authGate').classList.add('open');
     showAuthState('form');
   }
 };
+
+// Escucha en vivo: aplica cambios que llegan de OTRO dispositivo
 window.onCloudData=(payload)=>{
-  if(!payload){ cloudPushNow(); return; }              // no hay datos en la nube: subo los locales
-  if(payload.updatedAt && payload.updatedAt===lastPushedAt) return; // eco de mi propia escritura
-  applyingRemote=true;
-  S=Object.assign(defaultState(), payload.state||{});
-  localStorage.setItem(KEY,JSON.stringify(S));
-  applyingRemote=false;
-  lastSyncTime=payload.updatedAt||Date.now();
-  applyTheme(); renderAll();
-  toast('Datos sincronizados desde la nube ☁️');
+  if(!payload||!payload.state) return;
+  if(payload.writer===SESSION_ID) return;   // es el eco de mi propia escritura → ignorar
+  if(!initialSynced) return;                 // aún reconciliando: no aplicar todavía
+  applyRemote(payload,true);
 };
+
+// Reconciliación al iniciar sesión: elige la versión más reciente entre local y nube
+function cloudInitialSync(uid){
+  if(!window.CloudSync) return;
+  window.CloudSync.pull(uid).then(cloud=>{
+    const localTs=getLocalTs();
+    if(cloud && cloud.state && (cloud.updatedAt||0) >= localTs){
+      applyRemote(cloud,false);        // la nube está igual o más nueva → usarla
+    } else {
+      cloudPushNow();                  // lo local es más nuevo (o la nube está vacía) → subirlo
+    }
+    initialSynced=true;
+  }).catch(e=>{ initialSynced=true; window.onCloudError(e.message); });
+}
+
+// Aplica datos remotos al estado local
+function applyRemote(payload,notify){
+  if(!payload||!payload.state) return;
+  applyingRemote=true;
+  S=Object.assign(defaultState(), payload.state);
+  localStorage.setItem(KEY,JSON.stringify(S));
+  setLocalTs(payload.updatedAt);
+  applyingRemote=false; cloudDirty=false;
+  lastAppliedAt=payload.updatedAt||Date.now();
+  lastSyncTime=lastAppliedAt;
+  applyTheme(); renderAll();
+  if(notify) toast('Datos actualizados desde otro dispositivo ☁️');
+}
+
+// Trae la última versión de la nube (silencioso salvo que haya cambios)
+function cloudRefresh(){
+  if(!cloudUser||!window.CloudSync) return;
+  window.CloudSync.pull(cloudUser.uid).then(cloud=>{
+    if(cloud && cloud.state && (cloud.updatedAt||0) > getLocalTs()) applyRemote(cloud,true);
+  }).catch(()=>{});
+}
+// Al volver a la app (móvil) o recuperar internet, refrescar
+document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible' && cloudUser && initialSynced) cloudRefresh(); });
+window.addEventListener('online',()=>{ if(cloudUser && initialSynced) cloudRefresh(); });
+window.addEventListener('focus',()=>{ if(cloudUser && initialSynced) cloudRefresh(); });
 
 function cloudConnect(){ if(!cloudCfg||!window.CloudSync||cloudInited) return; cloudInited=true; window.CloudSync.init(cloudCfg); }
 function cloudLogin(){ if(!window.CloudSync){toast('Firebase aún no carga, espera un momento');return;} window.CloudSync.login().catch(e=>window.onCloudError(fbErrMsg(e.code||e.message))); }
@@ -1079,11 +1122,18 @@ function authReset(){
   window.CloudSync.resetPassword(email).then(()=>{authErr('');toast('Te enviamos un correo para restablecer tu contraseña 📧');}).catch(e=>authErr(fbErrMsg(e.code||e.message)));
 }
 function authLocalMode(){ document.getElementById('authGate').classList.remove('open'); }
-function cloudMaybePush(){ if(cloudUser&&!applyingRemote&&window.CloudSync){ clearTimeout(pushTimer); pushTimer=setTimeout(cloudPushNow,700); } }
+function cloudMaybePush(){ if(cloudUser&&!applyingRemote&&window.CloudSync){ cloudDirty=true; if(initialSynced){ clearTimeout(pushTimer); pushTimer=setTimeout(cloudPushNow,700); } } }
 function cloudPushNow(){
   if(!cloudUser||!window.CloudSync) return;
-  const ts=Date.now(); lastPushedAt=ts;
-  window.CloudSync.push(cloudUser.uid,S,ts).then(()=>{ lastSyncTime=ts; renderCloudUI(); }).catch(e=>window.onCloudError(e.message));
+  const ts=Date.now(); setLocalTs(ts);
+  window.CloudSync.push(cloudUser.uid,S,ts,SESSION_ID).then(()=>{ cloudDirty=false; lastAppliedAt=ts; lastSyncTime=ts; renderCloudUI(); }).catch(e=>window.onCloudError(e.message));
+}
+function cloudSyncNow(){
+  if(!cloudUser||!window.CloudSync){toast('Inicia sesión primero');return;}
+  window.CloudSync.pull(cloudUser.uid).then(cloud=>{
+    if(cloud && cloud.state && (cloud.updatedAt||0) > getLocalTs()){ applyRemote(cloud,false); toast('Datos traídos de la nube ☁️'); }
+    else { cloudPushNow(); toast('Datos enviados a la nube ☁️'); }
+  }).catch(e=>window.onCloudError(e.message));
 }
 function saveCloudCfg(){
   const get=k=>{const el=document.getElementById('fb_'+k);return el?el.value.trim():'';};
@@ -1115,7 +1165,7 @@ function renderCloudUI(){
   formEl.innerHTML=cloudUser?'':fields.map(([k,l])=>`<div class="field"><label>${l}</label><input id="fb_${k}" value="${(c[k]||'').replace(/"/g,'&quot;')}" placeholder="${l}"></div>`).join('');
   let btns='';
   if(cloudUser){
-    btns=`<button class="btn primary sm" onclick="cloudPushNow()">⬆️ Sincronizar ahora</button><button class="btn sm danger" onclick="cloudLogout()">Cerrar sesión</button>`;
+    btns=`<button class="btn primary sm" onclick="cloudSyncNow()">🔄 Sincronizar ahora</button><button class="btn sm danger" onclick="cloudLogout()">Cerrar sesión</button>`;
   } else {
     btns=`<button class="btn primary sm" onclick="saveCloudCfg()">💾 Guardar configuración</button>`;
     if(cloudCfg) btns+=`<button class="btn sm" onclick="cloudLogin()">🔗 Conectar con Google</button><button class="btn sm danger" onclick="clearCloudCfg()">Borrar config</button>`;
@@ -1143,7 +1193,7 @@ applyTheme();renderAll();authGateInit();
   import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged, setPersistence, browserLocalPersistence,
     signInWithEmailAndPassword, createUserWithEmailAndPassword, sendPasswordResetEmail }
     from "https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js";
-  import { getFirestore, doc, setDoc, onSnapshot }
+  import { getFirestore, doc, getDoc, setDoc, onSnapshot }
     from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
 
   let app, auth, db, provider, unsub=null;
@@ -1175,7 +1225,8 @@ applyTheme();renderAll();authGateInit();
         snap => window.onCloudData && window.onCloudData(snap.exists()? snap.data() : null),
         err  => window.onCloudError && window.onCloudError(err.message));
     },
-    async push(uid, state, ts){ await setDoc(doc(db,'finanzas',uid), {state, updatedAt:ts}); }
+    async pull(uid){ const s = await getDoc(doc(db,'finanzas',uid)); return s.exists()? s.data() : null; },
+    async push(uid, state, ts, writer){ await setDoc(doc(db,'finanzas',uid), {state, updatedAt:ts, writer:writer||''}); }
   };
 
   // Avisar a la app que el SDK ya está disponible
