@@ -149,6 +149,23 @@
   .tabs{display:flex;gap:6px;background:var(--card-2);padding:5px;border-radius:12px;margin-bottom:16px;flex-wrap:wrap}
   .tabs button{border:none;background:transparent;color:var(--txt-dim);padding:8px 15px;border-radius:9px;font-weight:600;font-size:.85rem}
   .tabs button.active{background:var(--card);color:var(--txt);box-shadow:var(--shadow)}
+
+  /* Pantalla de acceso */
+  .auth-gate{position:fixed;inset:0;z-index:100;background:linear-gradient(160deg,var(--bg),var(--bg-2));
+    display:none;align-items:center;justify-content:center;padding:20px}
+  .auth-gate.open{display:flex}
+  .auth-card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
+    padding:30px;width:100%;max-width:400px;box-shadow:var(--shadow)}
+  .auth-brand{display:flex;align-items:center;gap:12px;margin-bottom:22px}
+  .auth-brand .logo{width:44px;height:44px;border-radius:12px;background:linear-gradient(135deg,var(--accent),var(--accent-2));
+    display:grid;place-items:center;font-size:22px}
+  .auth-brand b{font-size:1.15rem}
+  .auth-sub{color:var(--muted);font-size:.82rem}
+  .auth-error{background:var(--red-bg);color:var(--red);padding:10px 12px;border-radius:10px;font-size:.85rem;margin-bottom:12px}
+  .auth-loading{text-align:center;padding:34px 0;color:var(--muted)}
+  .spinner{width:38px;height:38px;border:3px solid var(--card-2);border-top-color:var(--accent);
+    border-radius:50%;margin:0 auto 14px;animation:spin 1s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
 </style>
 </head>
 <body>
@@ -382,6 +399,39 @@
 </div>
 
 <div class="toast" id="toast"></div>
+
+<!-- Pantalla de acceso -->
+<div class="auth-gate" id="authGate">
+  <div class="auth-card">
+    <div class="auth-brand"><span class="logo">💠</span><div><b>Mi Flujo Personal</b><div class="auth-sub">Gestor de finanzas personales</div></div></div>
+
+    <div id="authLoading" class="auth-loading">
+      <div class="spinner"></div>
+      <p>Verificando tu sesión...</p>
+    </div>
+
+    <div id="authForm" style="display:none">
+      <div class="tabs" style="margin-bottom:18px">
+        <button id="tabLogin" class="active" onclick="authTab('login')">Iniciar sesión</button>
+        <button id="tabRegister" onclick="authTab('register')">Crear cuenta</button>
+      </div>
+      <div class="field"><label>Correo electrónico</label><input type="email" id="authEmail" placeholder="tucorreo@ejemplo.com" autocomplete="username"></div>
+      <div class="field"><label>Contraseña</label><input type="password" id="authPass" placeholder="••••••••" autocomplete="current-password" onkeydown="if(event.key==='Enter')authSubmit()"></div>
+      <div id="authError" class="auth-error" style="display:none"></div>
+      <button class="btn primary" id="authSubmit" style="width:100%;justify-content:center;margin-top:4px" onclick="authSubmit()">Entrar</button>
+      <div style="text-align:center;margin:12px 0;color:var(--muted);font-size:.8rem">— o —</div>
+      <button class="btn" style="width:100%;justify-content:center" onclick="authLoginGoogle()">🔗 Entrar con Google</button>
+      <div style="text-align:center;margin-top:14px">
+        <a href="#" onclick="authReset();return false" style="font-size:.82rem">¿Olvidaste tu contraseña?</a>
+      </div>
+    </div>
+
+    <div id="authNoConfig" style="display:none">
+      <p class="auth-sub" style="margin-bottom:14px">Para usar acceso con usuario y contraseña, primero configura Firebase (⚙️ Configuración → Sincronización en la nube).</p>
+      <button class="btn primary" style="width:100%;justify-content:center" onclick="authLocalMode()">Continuar en modo local</button>
+    </div>
+  </div>
+</div>
 
 <script>
 /* ============ Estado y persistencia ============ */
@@ -937,7 +987,15 @@ let cloudUser=null, cloudInited=false, applyingRemote=false, lastPushedAt=0, las
 window.onCloudReady=()=>{ if(cloudCfg) cloudConnect(); renderCloudUI(); };
 window.onCloudError=(m)=>{ toast('Nube: '+(m||'error')); };
 window.onCloudAuth=(u)=>{ cloudUser=u; renderCloudUI();
-  if(u&&window.CloudSync){ window.CloudSync.subscribe(u.uid); toast('Conectado como '+(u.email||'usuario')+' ☁️'); }
+  if(u&&window.CloudSync){
+    document.getElementById('authGate').classList.remove('open');   // entrar: ocultar pantalla de acceso
+    window.CloudSync.subscribe(u.uid);
+    toast('Bienvenido '+(u.email||'usuario')+' ☁️');
+  } else if(cloudCfg){
+    // sin sesión pero con Firebase configurado: mostrar pantalla de acceso
+    document.getElementById('authGate').classList.add('open');
+    showAuthState('form');
+  }
 };
 window.onCloudData=(payload)=>{
   if(!payload){ cloudPushNow(); return; }              // no hay datos en la nube: subo los locales
@@ -952,8 +1010,75 @@ window.onCloudData=(payload)=>{
 };
 
 function cloudConnect(){ if(!cloudCfg||!window.CloudSync||cloudInited) return; cloudInited=true; window.CloudSync.init(cloudCfg); }
-function cloudLogin(){ if(!window.CloudSync){toast('Firebase aún no carga, espera un momento');return;} window.CloudSync.login(); }
+function cloudLogin(){ if(!window.CloudSync){toast('Firebase aún no carga, espera un momento');return;} window.CloudSync.login().catch(e=>window.onCloudError(fbErrMsg(e.code||e.message))); }
 function cloudLogout(){ if(window.CloudSync) window.CloudSync.logout(); cloudUser=null; renderCloudUI(); toast('Sesión cerrada'); }
+
+/* ---- Pantalla de acceso (usuario y contraseña) ---- */
+let authMode='login';
+function authGateInit(){
+  const gate=document.getElementById('authGate');
+  if(cloudCfg){
+    gate.classList.add('open'); showAuthState('loading');
+    // si en 8s no se resuelve la sesión (p.ej. sin conexión), mostrar el formulario
+    setTimeout(()=>{ if(!cloudUser && document.getElementById('authLoading').style.display!=='none') showAuthState('form'); },8000);
+  } else {
+    gate.classList.remove('open'); // sin Firebase configurado: modo local, sin bloqueo
+  }
+}
+function showAuthState(s){
+  const L=document.getElementById('authLoading'),F=document.getElementById('authForm'),N=document.getElementById('authNoConfig');
+  if(!L)return;
+  L.style.display=s==='loading'?'block':'none';
+  F.style.display=s==='form'?'block':'none';
+  N.style.display=s==='noconfig'?'block':'none';
+}
+function authTab(m){ authMode=m;
+  document.getElementById('tabLogin').classList.toggle('active',m==='login');
+  document.getElementById('tabRegister').classList.toggle('active',m==='register');
+  document.getElementById('authSubmit').textContent=m==='login'?'Entrar':'Crear cuenta';
+  document.getElementById('authPass').setAttribute('autocomplete',m==='login'?'current-password':'new-password');
+  authErr('');
+}
+function authErr(msg){const e=document.getElementById('authError');if(!e)return;if(!msg){e.style.display='none';return;}e.textContent=msg;e.style.display='block';}
+function fbErrMsg(code){
+  code=code||'';
+  const map={
+    'auth/invalid-email':'El correo no es válido.',
+    'auth/missing-password':'Escribe tu contraseña.',
+    'auth/user-not-found':'No existe una cuenta con ese correo. Crea una cuenta.',
+    'auth/wrong-password':'Contraseña incorrecta.',
+    'auth/invalid-credential':'Correo o contraseña incorrectos.',
+    'auth/email-already-in-use':'Ya existe una cuenta con ese correo. Inicia sesión.',
+    'auth/weak-password':'La contraseña debe tener al menos 6 caracteres.',
+    'auth/operation-not-allowed':'Activa "Correo/contraseña" en Firebase → Authentication → Sign-in method.',
+    'auth/too-many-requests':'Demasiados intentos. Espera un momento e inténtalo de nuevo.',
+    'auth/unauthorized-domain':'Dominio no autorizado. Agrégalo en Firebase → Authentication → Settings → Authorized domains.',
+    'auth/popup-blocked':'El navegador bloqueó la ventana emergente. Permítela e inténtalo otra vez.',
+    'auth/popup-closed-by-user':'Cerraste la ventana de Google antes de terminar.',
+    'auth/network-request-failed':'Sin conexión a internet. Revisa tu red.'
+  };
+  for(const k in map){ if(code.includes(k)) return map[k]; }
+  return 'Error: '+code;
+}
+function authSubmit(){
+  const email=document.getElementById('authEmail').value.trim();
+  const pass=document.getElementById('authPass').value;
+  if(!email||!pass){authErr('Escribe tu correo y contraseña.');return;}
+  if(pass.length<6&&authMode==='register'){authErr('La contraseña debe tener al menos 6 caracteres.');return;}
+  if(!window.CloudSync){authErr('Firebase aún no carga, espera unos segundos.');return;}
+  authErr('');
+  document.getElementById('authSubmit').textContent='Procesando...';
+  const p=authMode==='login'?window.CloudSync.loginEmail(email,pass):window.CloudSync.registerEmail(email,pass);
+  p.catch(e=>{ authErr(fbErrMsg(e.code||e.message)); document.getElementById('authSubmit').textContent=authMode==='login'?'Entrar':'Crear cuenta'; });
+}
+function authLoginGoogle(){ if(!window.CloudSync){authErr('Firebase aún no carga.');return;} authErr(''); window.CloudSync.login().catch(e=>authErr(fbErrMsg(e.code||e.message))); }
+function authReset(){
+  const email=document.getElementById('authEmail').value.trim();
+  if(!email){authErr('Escribe tu correo arriba y vuelve a pulsar "¿Olvidaste tu contraseña?".');return;}
+  if(!window.CloudSync){authErr('Firebase aún no carga.');return;}
+  window.CloudSync.resetPassword(email).then(()=>{authErr('');toast('Te enviamos un correo para restablecer tu contraseña 📧');}).catch(e=>authErr(fbErrMsg(e.code||e.message)));
+}
+function authLocalMode(){ document.getElementById('authGate').classList.remove('open'); }
 function cloudMaybePush(){ if(cloudUser&&!applyingRemote&&window.CloudSync){ clearTimeout(pushTimer); pushTimer=setTimeout(cloudPushNow,700); } }
 function cloudPushNow(){
   if(!cloudUser||!window.CloudSync) return;
@@ -1008,14 +1133,15 @@ function renderAll(){
   renderInvest();renderGoals();renderCredits();renderAlerts();renderDashboard();
 }
 window.addEventListener('resize',()=>{drawBarChart();drawDonut();});
-applyTheme();renderAll();
+applyTheme();renderAll();authGateInit();
 </script>
 
 <!-- ============ Módulo Firebase (sincronización en la nube) ============ -->
 <script type="module">
   // Se carga solo cuando hay conexión a internet. Si no hay, la app sigue funcionando en modo local.
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js";
-  import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged, setPersistence, browserLocalPersistence }
+  import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged, setPersistence, browserLocalPersistence,
+    signInWithEmailAndPassword, createUserWithEmailAndPassword, sendPasswordResetEmail }
     from "https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js";
   import { getFirestore, doc, setDoc, onSnapshot }
     from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
@@ -1038,7 +1164,10 @@ applyTheme();renderAll();
         });
       }catch(e){ window.onCloudError && window.onCloudError(e.message); }
     },
-    async login(){ try{ await signInWithPopup(auth, provider); }catch(e){ window.onCloudError && window.onCloudError(e.message); } },
+    async login(){ await signInWithPopup(auth, provider); },
+    async loginEmail(email, pass){ await signInWithEmailAndPassword(auth, email, pass); },
+    async registerEmail(email, pass){ await createUserWithEmailAndPassword(auth, email, pass); },
+    async resetPassword(email){ await sendPasswordResetEmail(auth, email); },
     async logout(){ try{ if(unsub){unsub();unsub=null;} await signOut(auth); }catch(e){ window.onCloudError && window.onCloudError(e.message); } },
     subscribe(uid){
       if(unsub) unsub();
