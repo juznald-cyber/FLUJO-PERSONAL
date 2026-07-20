@@ -160,6 +160,7 @@
     <button class="nav-btn" data-view="ingresos"><span class="ic">💵</span> Ingresos</button>
     <button class="nav-btn" data-view="fijos"><span class="ic">📌</span> Gastos fijos</button>
     <button class="nav-btn" data-view="variables"><span class="ic">🛒</span> Gastos variables</button>
+    <button class="nav-btn" data-view="creditos"><span class="ic">💳</span> Créditos <span class="nav-badge" id="creditBadge" style="display:none;background:var(--amber);color:#1a2140">0</span></button>
     <button class="nav-btn" data-view="inversiones"><span class="ic">📈</span> Inversiones</button>
     <button class="nav-btn" data-view="ahorro"><span class="ic">🎯</span> Plan de ahorro</button>
     <button class="nav-btn" data-view="alertas"><span class="ic">🔔</span> Alertas <span class="nav-badge" id="alertBadge" style="display:none">0</span></button>
@@ -195,6 +196,7 @@
         <div class="card stat"><div class="label">💸 Gastos del mes</div><div class="value neg" id="sExpense">$0</div><div class="hint" id="sExpenseHint"></div></div>
         <div class="card stat"><div class="label">⚖️ Flujo neto</div><div class="value" id="sNet">$0</div><div class="hint" id="sNetHint"></div></div>
         <div class="card stat"><div class="label">🏦 Patrimonio invertido</div><div class="value" id="sWorth">$0</div><div class="hint" id="sWorthHint"></div></div>
+        <div class="card stat"><div class="label">💳 Deuda pendiente</div><div class="value neg" id="sDebt">$0</div><div class="hint" id="sDebtHint"></div></div>
       </div>
 
       <div class="row" style="margin-bottom:16px">
@@ -253,6 +255,20 @@
       <div class="card"><div id="variableTable"></div></div>
     </section>
 
+    <!-- ===== CREDITOS ===== -->
+    <section class="view" id="view-creditos">
+      <div class="topbar">
+        <div><h1>💳 Créditos y préstamos</h1><div class="sub">Registra tus créditos y mira mes a mes cuánto te falta por terminar de pagar.</div></div>
+        <button class="btn primary" onclick="openForm('credit')">＋ Nuevo crédito</button>
+      </div>
+      <div class="grid cards" style="margin-bottom:16px">
+        <div class="card stat"><div class="label">💳 Deuda total pendiente</div><div class="value neg" id="crDebt">$0</div><div class="hint" id="crDebtHint"></div></div>
+        <div class="card stat"><div class="label">📅 Cuota mensual total</div><div class="value" id="crMonthly">$0</div><div class="hint">Suma de créditos activos</div></div>
+        <div class="card stat"><div class="label">✅ Ya pagado</div><div class="value pos" id="crPaid">$0</div><div class="hint" id="crPaidHint"></div></div>
+      </div>
+      <div class="grid cards" id="creditsGrid"></div>
+    </section>
+
     <!-- ===== INVERSIONES ===== -->
     <section class="view" id="view-inversiones">
       <div class="topbar">
@@ -279,7 +295,7 @@
     <!-- ===== ALERTAS ===== -->
     <section class="view" id="view-alertas">
       <div class="topbar">
-        <div><h1>🔔 Alertas y vencimientos</h1><div class="sub">Recordatorios de pagos próximos según la fecha de tus gastos fijos y metas manuales.</div></div>
+        <div><h1>🔔 Alertas y vencimientos</h1><div class="sub">Pagos próximos y vencidos de tus gastos fijos, cuotas de crédito y recordatorios manuales.</div></div>
         <button class="btn primary" onclick="openForm('reminder')">＋ Recordatorio manual</button>
       </div>
       <div class="card"><div id="alertsList"></div></div>
@@ -351,7 +367,7 @@ const KEY='miFlujoPersonal_v1';
 const defaultState=()=>({
   currency:{symbol:'$',locale:'es-MX',code:'MXN'},
   theme:'dark',
-  income:[], fixed:[], variable:[], invest:[], goals:[], reminders:[]
+  income:[], fixed:[], variable:[], invest:[], goals:[], reminders:[], credits:[]
 });
 let S=load();
 function load(){try{const r=JSON.parse(localStorage.getItem(KEY));return r?Object.assign(defaultState(),r):defaultState();}catch(e){return defaultState();}}
@@ -425,9 +441,20 @@ const FORMS={
     {k:'desc',l:'Descripción',t:'text',req:1,ph:'Pago de tarjeta, tenencia...'},
     {k:'amount',l:'Monto (opcional)',t:'number'},
     {k:'due',l:'Fecha de vencimiento',t:'date',req:1,def:todayISO()}
+  ]},
+  credit:{title:'Crédito / Préstamo',fields:[
+    {k:'name',l:'Nombre del crédito',t:'text',req:1,ph:'Auto, hipoteca, tarjeta...'},
+    {k:'entity',l:'Entidad / Banco',t:'text',ph:'BBVA, Nu, Infonavit...'},
+    {k:'type',l:'Tipo',t:'select',opts:['Personal','Automotriz','Hipotecario','Tarjeta de crédito','Estudiantil','Nómina','Comercial','Otro']},
+    {k:'payment',l:'Cuota mensual',t:'number',req:1,ph:'Lo que pagas cada mes'},
+    {k:'term',l:'Plazo total (número de cuotas)',t:'number',req:1,ph:'ej. 48'},
+    {k:'paid',l:'Cuotas ya pagadas',t:'number',def:0},
+    {k:'rate',l:'Tasa de interés anual % (opcional)',t:'number',ph:'ej. 12.5'},
+    {k:'dueDay',l:'Día de pago (1-31)',t:'number',ph:'ej. 10'},
+    {k:'startDate',l:'Fecha de la primera cuota',t:'date',def:todayISO()}
   ]}
 };
-const LIST_MAP={income:'income',fixed:'fixed',variable:'variable',invest:'invest',goal:'goals',reminder:'reminders'};
+const LIST_MAP={income:'income',fixed:'fixed',variable:'variable',invest:'invest',goal:'goals',reminder:'reminders',credit:'credits'};
 let editing=null;
 
 function openForm(type,id){
@@ -479,7 +506,25 @@ function monthFixed(m){
   return S.fixed.filter(x=>x.date&&ym(x.date)<=m).reduce((a,b)=>a+(+b.amount||0),0);
 }
 function monthVariable(m){return inMonth(S.variable,m).reduce((a,b)=>a+(+b.amount||0),0);}
-function monthExpense(m){return monthFixed(m)+monthVariable(m);}
+function monthDiff(a,b){const[ay,am]=a.split('-').map(Number);const[by,bm]=b.split('-').map(Number);return (by-ay)*12+(bm-am);}
+function creditTermLeft(c){return Math.max(0,(+c.term||0)-(+c.paid||0));}
+// ¿la cuota del crédito c cae dentro del mes m?
+function creditActiveIn(c,m){
+  const term=+c.term||0;if(term<=0)return false;
+  if(c.startDate){const el=monthDiff(ym(c.startDate),m);return el>=0&&el<term;}
+  return creditTermLeft(c)>0; // sin fecha: aproxima como activo mientras falten cuotas
+}
+function monthCredits(m){return S.credits.filter(c=>creditActiveIn(c,m)).reduce((a,c)=>a+(+c.payment||0),0);}
+function monthExpense(m){return monthFixed(m)+monthVariable(m)+monthCredits(m);}
+function creditTotals(){
+  let remaining=0,paidAmt=0,monthly=0,cuotasLeft=0;
+  S.credits.forEach(c=>{
+    const left=creditTermLeft(c),pay=+c.payment||0;
+    remaining+=pay*left; paidAmt+=pay*(+c.paid||0); cuotasLeft+=left;
+    if(left>0)monthly+=pay;
+  });
+  return{remaining,paidAmt,monthly,cuotasLeft,active:S.credits.filter(c=>creditTermLeft(c)>0).length};
+}
 function investTotals(){
   const bal=S.invest.reduce((a,b)=>a+(+b.balance||0),0);
   const con=S.invest.reduce((a,b)=>a+(+b.contributed||0),0);
@@ -555,6 +600,77 @@ function renderGoals(){
 }
 function addToGoal(id){const g=S.goals.find(x=>x.id===id);const v=prompt('¿Cuánto aportas a "'+g.name+'"?');if(v===null)return;const n=Number(v);if(isNaN(n)){toast('Monto inválido');return;}g.saved=(+g.saved||0)+n;save();renderAll();toast('Aporte registrado 🎯');}
 
+/* ============ Créditos ============ */
+function addMonths(dateStr,n){const d=new Date(dateStr);d.setMonth(d.getMonth()+n);return d;}
+function creditSchedule(c){
+  // plan de las cuotas RESTANTES: nº, fecha, pago, saldo tras pagar
+  const term=+c.term||0,pay=+c.payment||0,paid=+c.paid||0;
+  const base=c.startDate||todayISO();
+  const rows=[];
+  for(let n=paid+1;n<=term;n++){
+    const d=addMonths(base,n-1);
+    rows.push({n,date:d.toISOString().slice(0,10),pay,balance:pay*(term-n)});
+  }
+  return rows;
+}
+function payCredit(id){
+  const c=S.credits.find(x=>x.id===id);if(!c)return;
+  if(creditTermLeft(c)<=0){toast('Este crédito ya está pagado 🎉');return;}
+  c.paid=(+c.paid||0)+1;save();renderAll();
+  toast(creditTermLeft(c)<=0?'🎉 ¡Crédito liquidado!':'Cuota registrada ✓ ('+c.paid+'/'+c.term+')');
+}
+function toggleSchedule(id){const el=document.getElementById('sched-'+id);if(el)el.style.display=el.style.display==='none'?'block':'none';}
+
+function renderCredits(){
+  const t=creditTotals();
+  document.getElementById('crDebt').textContent=money(t.remaining);
+  document.getElementById('crDebtHint').textContent=t.cuotasLeft+' cuota(s) por pagar';
+  document.getElementById('crMonthly').textContent=money(t.monthly);
+  document.getElementById('crPaid').textContent=money(t.paidAmt);
+  document.getElementById('crPaidHint').textContent=t.active+' crédito(s) activo(s)';
+  const badge=document.getElementById('creditBadge');
+  if(t.active>0){badge.style.display='';badge.textContent=t.active;}else badge.style.display='none';
+
+  const el=document.getElementById('creditsGrid');
+  if(!S.credits.length){el.innerHTML=`<div class="card">${emptyMsg('Registra tus créditos (auto, hipoteca, tarjeta...) para seguir tu deuda mes a mes.')}</div>`;return;}
+  el.innerHTML=S.credits.map(c=>{
+    const term=+c.term||0,pay=+c.payment||0,paid=+c.paid||0;
+    const left=creditTermLeft(c);
+    const totalToPay=pay*term, remaining=pay*left, paidAmt=pay*paid;
+    const pct=term?Math.min(100,paid/term*100):0;
+    const done=left<=0;
+    const endDate=term?addMonths(c.startDate||todayISO(),term-1).toLocaleDateString(S.currency.locale,{month:'short',year:'numeric'}):'—';
+    const cls=done?'green':pct>=60?'':'amber';
+    const sched=creditSchedule(c);
+    const schedRows=sched.slice(0,240).map(r=>`<tr><td>#${r.n}</td><td>${r.date}</td><td class="num neg">${money(r.pay)}</td><td class="num">${money(r.balance)}</td></tr>`).join('');
+    return `<div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:start">
+        <div class="section-title" style="margin:0">💳 ${c.name||'Crédito'} ${done?'<span class="pill up">✅ pagado</span>':''}</div>
+        <div><button class="icon-btn" onclick="openForm('credit','${c.id}')">✏️</button><button class="icon-btn" onclick="del('credit','${c.id}')">🗑️</button></div>
+      </div>
+      <div style="font-size:.82rem;color:var(--muted);margin-top:2px">${c.entity||''} ${c.type?'· '+c.type:''} ${c.rate?'· '+c.rate+'% anual':''}</div>
+      <div style="margin:14px 0 4px;font-size:1.35rem;font-weight:800" class="neg">${money(remaining)} <span style="color:var(--muted);font-size:.85rem;font-weight:600">pendiente</span></div>
+      <div class="bar ${cls}"><span style="width:${pct}%"></span></div>
+      <div style="display:flex;justify-content:space-between;margin-top:6px;font-size:.8rem;color:var(--muted)">
+        <span>Cuota ${paid} de ${term} (${pct.toFixed(0)}%)</span><span>Fin ~ ${endDate}</span></div>
+      <div style="display:flex;gap:18px;margin-top:12px;font-size:.85rem;flex-wrap:wrap">
+        <div><div style="color:var(--muted);font-size:.74rem">Cuota mensual</div><b>${money(pay)}</b></div>
+        <div><div style="color:var(--muted);font-size:.74rem">Total del crédito</div><b>${money(totalToPay)}</b></div>
+        <div><div style="color:var(--muted);font-size:.74rem">Ya pagado</div><b class="pos">${money(paidAmt)}</b></div>
+        <div><div style="color:var(--muted);font-size:.74rem">Cuotas restantes</div><b>${left}</b></div>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap">
+        ${done?'':`<button class="btn primary sm" onclick="payCredit('${c.id}')">✓ Registrar pago de cuota</button>`}
+        <button class="btn sm" onclick="toggleSchedule('${c.id}')">📅 Ver plan mes a mes</button>
+      </div>
+      <div id="sched-${c.id}" style="display:none;margin-top:14px;max-height:320px;overflow-y:auto">
+        ${left<=0?'<div class="empty" style="padding:14px">Sin cuotas pendientes 🎉</div>':
+          `<table><thead><tr><th>Cuota</th><th>Fecha estimada</th><th class="num">Pago</th><th class="num">Saldo restante</th></tr></thead><tbody>${schedRows}</tbody></table>`}
+      </div>
+    </div>`;
+  }).join('');
+}
+
 /* ============ Alertas ============ */
 function buildAlerts(){
   const out=[];const today=new Date();
@@ -564,6 +680,12 @@ function buildAlerts(){
     // si ya pasó este mes, usar el próximo mes
     if(daysBetween(todayISO(),d.toISOString().slice(0,10))<0)d.setMonth(d.getMonth()+1);
     out.push({desc:x.desc,amount:x.amount,due:d.toISOString().slice(0,10),src:'Gasto fijo'});
+  });
+  // créditos activos con día de pago
+  S.credits.filter(c=>c.dueDay&&creditTermLeft(c)>0).forEach(c=>{
+    const d=new Date(today.getFullYear(),today.getMonth(),Math.min(28,c.dueDay));
+    if(daysBetween(todayISO(),d.toISOString().slice(0,10))<0)d.setMonth(d.getMonth()+1);
+    out.push({desc:'Cuota: '+(c.name||'crédito'),amount:c.payment,due:d.toISOString().slice(0,10),src:'Crédito'});
   });
   S.reminders.forEach(r=>out.push({id:r.id,desc:r.desc,amount:r.amount,due:r.due,src:'Recordatorio',manual:1}));
   out.forEach(a=>a.days=daysBetween(todayISO(),a.due));
@@ -611,10 +733,13 @@ function renderDashboard(){
   const nEl=document.getElementById('sNet');nEl.textContent=(net>=0?'+':'')+money(net);nEl.className='value '+(net>=0?'pos':'neg');
   document.getElementById('sNetHint').innerHTML=inc>0?`Tasa de ahorro: <b>${(net/inc*100).toFixed(0)}%</b>`:'';
   document.getElementById('sIncomeHint').textContent=inMonth(S.income,currentMonth).length+' registros';
-  document.getElementById('sExpenseHint').textContent='Fijos '+money(monthFixed(currentMonth))+' · Variables '+money(monthVariable(currentMonth));
+  document.getElementById('sExpenseHint').textContent='Fijos '+money(monthFixed(currentMonth))+' · Var '+money(monthVariable(currentMonth))+' · Créd '+money(monthCredits(currentMonth));
   const t=investTotals();
   document.getElementById('sWorth').textContent=money(t.bal);
   document.getElementById('sWorthHint').innerHTML=t.gain>=0?`<span class="pos">▲ ${money(t.gain)}</span> de ganancia`:`<span class="neg">▼ ${money(Math.abs(t.gain))}</span> de pérdida`;
+  const ct=creditTotals();
+  document.getElementById('sDebt').textContent=money(ct.remaining);
+  document.getElementById('sDebtHint').textContent=ct.cuotasLeft>0?ct.cuotasLeft+' cuotas · '+money(ct.monthly)+'/mes':'Sin deudas 🎉';
 
   drawBarChart();drawDonut();renderRule();renderHealth();renderAlerts();
 }
@@ -656,6 +781,7 @@ function drawDonut(){
   const cats={};
   S.fixed.filter(x=>ym(x.date)<=currentMonth).forEach(x=>cats[x.category||'Otro']=(cats[x.category||'Otro']||0)+(+x.amount||0));
   inMonth(S.variable,currentMonth).forEach(x=>cats[x.category||'Otro']=(cats[x.category||'Otro']||0)+(+x.amount||0));
+  const crd=monthCredits(currentMonth);if(crd>0)cats['Créditos']=(cats['Créditos']||0)+crd;
   const entries=Object.entries(cats).filter(e=>e[1]>0).sort((a,b)=>b[1]-a[1]);
   const total=entries.reduce((a,b)=>a+b[1],0);
   const cx=W/2,cy=H/2,rO=Math.min(W,H)/2-20,rI=rO*0.6;
@@ -677,6 +803,7 @@ function renderRule(){
   let needs=0,wants=0;
   S.fixed.filter(x=>ym(x.date)<=currentMonth).forEach(x=>{(need.includes(x.category)?needs+=(+x.amount||0):wants+=(+x.amount||0));});
   inMonth(S.variable,currentMonth).forEach(x=>{(need.includes(x.category)||['Alimentación','Hogar'].includes(x.category)?needs+=(+x.amount||0):wants+=(+x.amount||0));});
+  needs+=monthCredits(currentMonth); // las cuotas de crédito cuentan como necesidad
   const save=Math.max(0,inc-needs-wants);
   const rows=[['Necesidades (50%)',needs,0.5,'red'],['Deseos (30%)',wants,0.3,'amber'],['Ahorro/Inversión (20%)',save,0.2,'green']];
   document.getElementById('rule503020').innerHTML=inc<=0?'<div class="empty" style="padding:14px">Registra ingresos para ver tu distribución.</div>':rows.map(([label,val,ideal,cls])=>{
@@ -731,6 +858,7 @@ function exportCSV(){
   S.fixed.forEach(x=>rows.push(['Gasto fijo',x.date,x.desc,x.category,x.amount]));
   S.variable.forEach(x=>rows.push(['Gasto variable',x.date,x.desc,x.category,x.amount]));
   S.invest.forEach(x=>rows.push(['Inversión',x.date,x.name,x.type,x.balance]));
+  S.credits.forEach(c=>rows.push(['Crédito (pendiente)',c.startDate,c.name,c.type,(+c.payment||0)*creditTermLeft(c)]));
   const csv=rows.map(r=>r.map(v=>`"${(v??'').toString().replace(/"/g,'""')}"`).join(',')).join('\n');
   const blob=new Blob(['\ufeff'+csv],{type:'text/csv'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='mi-flujo-'+todayISO()+'.csv';a.click();toast('CSV descargado');
 }
@@ -767,6 +895,11 @@ function loadSample(){
     {id:uid(),name:'Viaje a Japón',target:45000,saved:12000,monthly:3000,deadline:dt(10,1)}
   ];
   S.reminders=[{id:uid(),desc:'Pago tenencia auto',amount:2800,due:dt(0,new Date().getDate()+3)}];
+  S.credits=[
+    {id:uid(),name:'Crédito automotriz',entity:'BBVA',type:'Automotriz',payment:5200,term:48,paid:18,rate:12.5,dueDay:10,startDate:dt(-18,1)},
+    {id:uid(),name:'Tarjeta de crédito',entity:'Nu',type:'Tarjeta de crédito',payment:1500,term:12,paid:4,rate:36,dueDay:20,startDate:dt(-4,1)},
+    {id:uid(),name:'Crédito hipotecario',entity:'Infonavit',type:'Hipotecario',payment:7800,term:240,paid:36,rate:9,dueDay:5,startDate:dt(-36,1)}
+  ];
   save();applyTheme();renderAll();
   // seleccionar mes actual
   currentMonth=todayISO().slice(0,7);renderDashboard();
@@ -779,7 +912,7 @@ function renderAll(){
   // set currency selector
   const sel=document.getElementById('cfgCurrency');if(sel)sel.value=`${S.currency.symbol}|${S.currency.locale}|${S.currency.code}`;
   renderIncome();renderExpenseTable('fixed','fixed');renderExpenseTable('variable','variable');
-  renderInvest();renderGoals();renderAlerts();renderDashboard();
+  renderInvest();renderGoals();renderCredits();renderAlerts();renderDashboard();
 }
 window.addEventListener('resize',()=>{drawBarChart();drawDonut();});
 applyTheme();renderAll();
