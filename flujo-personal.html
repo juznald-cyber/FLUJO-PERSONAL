@@ -204,6 +204,7 @@
         </div>
         <div class="top-actions">
           <select id="monthPicker" class="btn" style="padding-right:30px"></select>
+          <button class="btn" id="copyPrevBtn" onclick="copyPrevMonth()" title="Copiar los datos del mes anterior a este mes">📋 Traer mes anterior</button>
           <button class="btn" id="themeBtn">🌓 Tema</button>
         </div>
       </div>
@@ -796,10 +797,30 @@ function last6Months(){const arr=[];const d=new Date(currentMonth+'-01');for(let
 function renderMonthPicker(){
   const set=new Set([currentMonth,todayISO().slice(0,7)]);
   [...S.income,...S.variable,...S.fixed].forEach(x=>{if(x.date)set.add(ym(x.date));});
+  // incluir los próximos 3 meses para poder planificar/copiar hacia adelante
+  const nowD=new Date();
+  for(let i=1;i<=3;i++){ const d=new Date(nowD.getFullYear(),nowD.getMonth()+i,1); set.add(d.toISOString().slice(0,7)); }
   const months=[...set].sort().reverse();
   const p=document.getElementById('monthPicker');
   p.innerHTML=months.map(m=>{const[y,mo]=m.split('-');return `<option value="${m}" ${m===currentMonth?'selected':''}>${monthName(+y,+mo-1)}</option>`;}).join('');
   p.onchange=()=>{currentMonth=p.value;renderDashboard();};
+}
+
+// Copia los ingresos (no recurrentes) y gastos variables del mes anterior al mes seleccionado
+function copyPrevMonth(){
+  const [y,mo]=currentMonth.split('-').map(Number);      // mes destino = el seleccionado en el dashboard
+  const prevD=new Date(y,mo-2,1);
+  const prevYm=prevD.toISOString().slice(0,7);
+  const lastDay=new Date(y,mo,0).getDate();              // último día válido del mes destino
+  const shift=(dateStr)=>{ const day=new Date(dateStr).getDate(); return `${currentMonth}-${String(Math.min(day,lastDay)).padStart(2,'0')}`; };
+  const vars=S.variable.filter(x=>x.date&&ym(x.date)===prevYm);
+  const incs=S.income.filter(x=>x.date&&ym(x.date)===prevYm&&!x.recurring);
+  if(!vars.length&&!incs.length){ toast('No hay datos en '+monthName(prevD.getFullYear(),prevD.getMonth())+' para copiar'); return; }
+  if(!confirm(`Se copiarán ${incs.length} ingreso(s) y ${vars.length} gasto(s) variable(s) de ${monthName(prevD.getFullYear(),prevD.getMonth())} a ${monthName(y,mo-1)}.\n\nNota: los gastos fijos y los ingresos recurrentes ya aparecen solos cada mes.\n\n¿Continuar?`)) return;
+  incs.forEach(x=>S.income.push({...x,id:uid(),date:shift(x.date)}));
+  vars.forEach(x=>S.variable.push({...x,id:uid(),date:shift(x.date)}));
+  save(); renderAll();
+  toast('✓ Copiado. Edita montos o fechas en Ingresos / Gastos variables si corresponde.');
 }
 function renderDashboard(){
   renderMonthPicker();
@@ -1215,7 +1236,7 @@ applyTheme();renderAll();authGateInit();
   import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged, setPersistence, browserLocalPersistence,
     signInWithEmailAndPassword, createUserWithEmailAndPassword, sendPasswordResetEmail }
     from "https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js";
-  import { getFirestore, doc, getDoc, setDoc, onSnapshot }
+  import { getFirestore, initializeFirestore, doc, getDoc, setDoc, onSnapshot }
     from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
 
   let app, auth, db, provider, unsub=null;
@@ -1227,7 +1248,10 @@ applyTheme();renderAll();authGateInit();
       try{
         app = initializeApp(cfg);
         auth = getAuth(app);
-        db = getFirestore(app);
+        // Forzar transporte compatible: algunas redes/navegadores/extensiones bloquean
+        // el canal por defecto de Firestore y provocan el error "unavailable".
+        try{ db = initializeFirestore(app, { experimentalForceLongPolling: true, useFetchStreams: false }); }
+        catch(e){ db = getFirestore(app); }
         provider = new GoogleAuthProvider();
         this.ready = true;
         setPersistence(auth, browserLocalPersistence).catch(()=>{});
