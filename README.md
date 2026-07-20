@@ -11,7 +11,8 @@ Gestor de finanzas personales en un **solo archivo HTML**. Funciona sin conexió
 - **💳 Créditos y préstamos** — seguimiento **mes a mes** de la deuda pendiente, cuotas pagadas, plan de amortización y fecha estimada de término.
 - **🎯 Plan de ahorro y metas** — progreso, aportes y **proyección de fecha** de cumplimiento.
 - **🔔 Alertas de vencimientos** — pagos próximos y vencidos calculados automáticamente + recordatorios manuales.
-- **☁️ Sincronización en la nube (Firebase)** — inicia sesión con Google y tus datos se guardan y sincronizan automáticamente entre todos tus dispositivos.
+- **🔐 Pantalla de acceso** — al abrir la app pide iniciar sesión con **usuario (correo) y contraseña** o con **Google** (requiere Firebase configurado).
+- **☁️ Sincronización en la nube (Firebase)** — tus datos se guardan y sincronizan automáticamente entre todos tus dispositivos al iniciar sesión con la misma cuenta.
 
 ### Extras
 - 📊 Dashboard con selector de mes, flujo neto y tasa de ahorro.
@@ -37,7 +38,7 @@ Por defecto la app guarda todo en el navegador (`localStorage`). Si quieres abri
 
 ### Configuración paso a paso
 1. Entra a [console.firebase.google.com](https://console.firebase.google.com) y crea un proyecto nuevo (gratis).
-2. **Build → Authentication → Sign-in method:** activa el proveedor **Google**.
+2. **Build → Authentication → Sign-in method:** activa los proveedores **Google** y **Correo electrónico/contraseña** (Email/Password). El de correo es el que habilita la pantalla de acceso con usuario y contraseña.
 3. **Build → Firestore Database:** crea la base de datos (modo producción).
 4. **Project settings (⚙️) → Your apps:** crea una app **Web** (`</>`) y copia los valores de `firebaseConfig` (`apiKey`, `authDomain`, `projectId`, `appId`, etc.).
 5. Abre la app → **⚙️ Configuración → ☁️ Sincronización en la nube**, pega esos valores y pulsa **Guardar configuración**.
