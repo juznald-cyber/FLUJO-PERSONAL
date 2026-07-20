@@ -486,8 +486,7 @@ const FORMS={
     {k:'desc',l:'Descripción',t:'text',req:1,ph:'Sueldo, freelance...'},
     {k:'category',l:'Categoría',t:'select',opts:['Salario','Freelance','Renta','Dividendos','Negocio','Bono','Otro']},
     {k:'amount',l:'Monto',t:'number',req:1},
-    {k:'date',l:'Fecha',t:'date',req:1,def:todayISO()},
-    {k:'recurring',l:'¿Se repite cada mes?',t:'checkbox'}
+    {k:'date',l:'Fecha',t:'date',req:1,def:todayISO()}
   ]},
   fixed:{title:'Gasto fijo',fields:[
     {k:'desc',l:'Descripción',t:'text',req:1,ph:'Renta, internet, Netflix...'},
@@ -575,14 +574,12 @@ function del(type,id){if(!confirm('¿Eliminar este registro?'))return;S[LIST_MAP
 /* ============ Cálculos ============ */
 function inMonth(list,m){return list.filter(x=>x.date&&ym(x.date)===m);}
 function monthIncome(m){
-  let sum=inMonth(S.income,m).reduce((a,b)=>a+(+b.amount||0),0);
-  // recurrentes de meses anteriores
-  S.income.filter(x=>x.recurring&&ym(x.date)<m&&ym(x.date)!==m).forEach(x=>{sum+=(+x.amount||0);});
-  return sum;
+  // Cada mes es independiente: solo cuenta lo registrado en ese mes.
+  return inMonth(S.income,m).reduce((a,b)=>a+(+b.amount||0),0);
 }
 function monthFixed(m){
-  // los fijos se consideran vigentes desde su mes de registro en adelante
-  return S.fixed.filter(x=>x.date&&ym(x.date)<=m).reduce((a,b)=>a+(+b.amount||0),0);
+  // Cada mes es independiente: solo cuenta los gastos fijos registrados en ese mes.
+  return inMonth(S.fixed,m).reduce((a,b)=>a+(+b.amount||0),0);
 }
 function monthVariable(m){return inMonth(S.variable,m).reduce((a,b)=>a+(+b.amount||0),0);}
 function monthDiff(a,b){const[ay,am]=a.split('-').map(Number);const[by,bm]=b.split('-').map(Number);return (by-ay)*12+(bm-am);}
@@ -618,9 +615,9 @@ function renderIncome(){
   const list=[...S.income].sort((a,b)=>(b.date||'').localeCompare(a.date||''));
   const el=document.getElementById('incomeTable');
   if(!list.length){el.innerHTML=emptyMsg('Aún no registras ingresos. Agrega tu sueldo o entradas de dinero.');return;}
-  el.innerHTML=`<table><thead><tr><th>Fecha</th><th>Descripción</th><th>Categoría</th><th></th><th class="num">Monto</th><th></th></tr></thead><tbody>
+  el.innerHTML=`<table><thead><tr><th>Fecha</th><th>Descripción</th><th>Categoría</th><th class="num">Monto</th><th></th></tr></thead><tbody>
   ${list.map(x=>`<tr><td>${x.date||''}</td><td>${x.desc||''}</td><td><span class="tag">${x.category||'—'}</span></td>
-  <td>${x.recurring?'<span class="pill up">🔁 mensual</span>':''}</td><td class="num pos">${money(x.amount)}</td>${actionCell('income',x.id)}</tr>`).join('')}
+  <td class="num pos">${money(x.amount)}</td>${actionCell('income',x.id)}</tr>`).join('')}
   </tbody></table>`;
 }
 function renderExpenseTable(type,listName){
@@ -752,9 +749,9 @@ function renderCredits(){
 
 /* ============ Alertas ============ */
 function buildAlerts(){
-  const out=[];const today=new Date();
-  // gastos fijos con día de pago
-  S.fixed.filter(x=>x.dueDay).forEach(x=>{
+  const out=[];const today=new Date();const thisYm=todayISO().slice(0,7);
+  // gastos fijos del mes actual con día de pago (evita duplicados de meses copiados)
+  S.fixed.filter(x=>x.dueDay&&x.date&&ym(x.date)===thisYm).forEach(x=>{
     const d=new Date(today.getFullYear(),today.getMonth(),Math.min(28,x.dueDay));
     // si ya pasó este mes, usar el próximo mes
     if(daysBetween(todayISO(),d.toISOString().slice(0,10))<0)d.setMonth(d.getMonth()+1);
@@ -806,21 +803,28 @@ function renderMonthPicker(){
   p.onchange=()=>{currentMonth=p.value;renderDashboard();};
 }
 
-// Copia los ingresos (no recurrentes) y gastos variables del mes anterior al mes seleccionado
+// Copia TODO (ingresos, gastos fijos y variables) del mes anterior al mes seleccionado,
+// como registros nuevos e independientes con la fecha ajustada al mes destino.
 function copyPrevMonth(){
   const [y,mo]=currentMonth.split('-').map(Number);      // mes destino = el seleccionado en el dashboard
   const prevD=new Date(y,mo-2,1);
   const prevYm=prevD.toISOString().slice(0,7);
   const lastDay=new Date(y,mo,0).getDate();              // último día válido del mes destino
   const shift=(dateStr)=>{ const day=new Date(dateStr).getDate(); return `${currentMonth}-${String(Math.min(day,lastDay)).padStart(2,'0')}`; };
+  const incs=S.income.filter(x=>x.date&&ym(x.date)===prevYm);
+  const fixs=S.fixed.filter(x=>x.date&&ym(x.date)===prevYm);
   const vars=S.variable.filter(x=>x.date&&ym(x.date)===prevYm);
-  const incs=S.income.filter(x=>x.date&&ym(x.date)===prevYm&&!x.recurring);
-  if(!vars.length&&!incs.length){ toast('No hay datos en '+monthName(prevD.getFullYear(),prevD.getMonth())+' para copiar'); return; }
-  if(!confirm(`Se copiarán ${incs.length} ingreso(s) y ${vars.length} gasto(s) variable(s) de ${monthName(prevD.getFullYear(),prevD.getMonth())} a ${monthName(y,mo-1)}.\n\nNota: los gastos fijos y los ingresos recurrentes ya aparecen solos cada mes.\n\n¿Continuar?`)) return;
+  const total=incs.length+fixs.length+vars.length;
+  if(!total){ toast('No hay datos en '+monthName(prevD.getFullYear(),prevD.getMonth())+' para copiar'); return; }
+  // evitar duplicar si el mes destino ya tiene datos
+  const destTiene=inMonth(S.income,currentMonth).length+inMonth(S.fixed,currentMonth).length+inMonth(S.variable,currentMonth).length;
+  const aviso=destTiene?`\n\n⚠️ ${monthName(y,mo-1)} ya tiene ${destTiene} registro(s); se AGREGARÁN los copiados (no se reemplazan).`:'';
+  if(!confirm(`Se copiarán de ${monthName(prevD.getFullYear(),prevD.getMonth())} a ${monthName(y,mo-1)}:\n• ${incs.length} ingreso(s)\n• ${fixs.length} gasto(s) fijo(s)\n• ${vars.length} gasto(s) variable(s)\n\nSerán copias independientes: al editarlas NO se modifican otros meses.${aviso}\n\n¿Continuar?`)) return;
   incs.forEach(x=>S.income.push({...x,id:uid(),date:shift(x.date)}));
+  fixs.forEach(x=>S.fixed.push({...x,id:uid(),date:shift(x.date)}));
   vars.forEach(x=>S.variable.push({...x,id:uid(),date:shift(x.date)}));
   save(); renderAll();
-  toast('✓ Copiado. Edita montos o fechas en Ingresos / Gastos variables si corresponde.');
+  toast('✓ '+total+' registro(s) copiado(s). Edita montos o fechas donde corresponda.');
 }
 function renderDashboard(){
   renderMonthPicker();
@@ -878,7 +882,7 @@ function drawDonut(){
   const W=c.width=c.clientWidth*2;const H=c.height=440;ctx.clearRect(0,0,W,H);
   // agrupar por categoría (fijos vigentes + variables del mes)
   const cats={};
-  S.fixed.filter(x=>ym(x.date)<=currentMonth).forEach(x=>cats[x.category||'Otro']=(cats[x.category||'Otro']||0)+(+x.amount||0));
+  inMonth(S.fixed,currentMonth).forEach(x=>cats[x.category||'Otro']=(cats[x.category||'Otro']||0)+(+x.amount||0));
   inMonth(S.variable,currentMonth).forEach(x=>cats[x.category||'Otro']=(cats[x.category||'Otro']||0)+(+x.amount||0));
   const crd=monthCredits(currentMonth);if(crd>0)cats['Créditos']=(cats['Créditos']||0)+crd;
   const entries=Object.entries(cats).filter(e=>e[1]>0).sort((a,b)=>b[1]-a[1]);
@@ -900,7 +904,7 @@ function renderRule(){
   const inc=monthIncome(currentMonth);
   const need=['Vivienda','Servicios','Créditos','Seguros','Salud','Educación','Transporte'];
   let needs=0,wants=0;
-  S.fixed.filter(x=>ym(x.date)<=currentMonth).forEach(x=>{(need.includes(x.category)?needs+=(+x.amount||0):wants+=(+x.amount||0));});
+  inMonth(S.fixed,currentMonth).forEach(x=>{(need.includes(x.category)?needs+=(+x.amount||0):wants+=(+x.amount||0));});
   inMonth(S.variable,currentMonth).forEach(x=>{(need.includes(x.category)||['Alimentación','Hogar'].includes(x.category)?needs+=(+x.amount||0):wants+=(+x.amount||0));});
   needs+=monthCredits(currentMonth); // las cuotas de crédito cuentan como necesidad
   const save=Math.max(0,inc-needs-wants);
@@ -973,10 +977,10 @@ function loadSample(){
     {id:uid(),desc:'Sueldo',category:'Salario',amount:28000,date:dt(-1,1),recurring:false}
   ];
   S.fixed=[
-    {id:uid(),desc:'Renta departamento',category:'Vivienda',amount:8500,dueDay:5,date:dt(-2,1)},
-    {id:uid(),desc:'Internet + luz + agua',category:'Servicios',amount:2200,dueDay:15,date:dt(-2,1)},
-    {id:uid(),desc:'Netflix + Spotify',category:'Suscripciones',amount:420,dueDay:20,date:dt(-2,1)},
-    {id:uid(),desc:'Tarjeta de crédito',category:'Créditos',amount:3000,dueDay:22,date:dt(-1,1)}
+    {id:uid(),desc:'Renta departamento',category:'Vivienda',amount:8500,dueDay:5,date:dt(0,1)},
+    {id:uid(),desc:'Internet + luz + agua',category:'Servicios',amount:2200,dueDay:15,date:dt(0,1)},
+    {id:uid(),desc:'Netflix + Spotify',category:'Suscripciones',amount:420,dueDay:20,date:dt(0,1)},
+    {id:uid(),desc:'Tarjeta de crédito',category:'Créditos',amount:3000,dueDay:22,date:dt(0,1)}
   ];
   S.variable=[
     {id:uid(),desc:'Súper de la semana',category:'Alimentación',amount:1800,date:dt(0,4)},
