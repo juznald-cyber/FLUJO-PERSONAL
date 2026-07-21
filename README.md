@@ -8,6 +8,7 @@ Gestor de finanzas personales en un **solo archivo HTML**. Funciona sin conexió
 - **📌 Gastos fijos** — renta, servicios, suscripciones, créditos, con **día de pago** para alertas.
 - **🛒 Gastos variables** — compras, comida, transporte, ocio, por categoría.
 - **📈 Cuentas de inversión** — aportado vs valor actual y **% de rendimiento**.
+- **🗓️ Meses independientes** — cada mes tiene sus propios ingresos y gastos. Con el botón **📋 Traer mes anterior** copias todo el mes previo (ingresos, fijos y variables) al mes seleccionado, con la fecha actualizada, y editas montos/fechas sin afectar otros meses.
 - **💳 Créditos y préstamos** — seguimiento **mes a mes** de la deuda pendiente, cuotas pagadas, plan de amortización y fecha estimada de término.
 - **🎯 Plan de ahorro y metas** — progreso, aportes y **proyección de fecha** de cumplimiento.
 - **🔔 Alertas de vencimientos** — pagos próximos y vencidos calculados automáticamente + recordatorios manuales.
