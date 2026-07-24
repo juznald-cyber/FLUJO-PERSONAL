@@ -134,6 +134,13 @@
   .view.active{display:block}
   @keyframes fade{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
 
+  /* Versículos */
+  .verse-banner{background:var(--card-2);border-left:4px solid var(--accent);border-radius:12px;
+    padding:13px 16px;margin-bottom:18px;font-style:italic;color:var(--txt-dim);font-size:.9rem;line-height:1.55;animation:fade .3s}
+  .verse-banner .ref, .auth-verse .ref{display:block;margin-top:5px;font-style:normal;font-weight:700;color:var(--accent);font-size:.82rem}
+  .auth-verse{background:var(--card-2);border-left:4px solid var(--accent);border-radius:12px;
+    padding:12px 14px;margin-bottom:20px;font-style:italic;color:var(--txt-dim);font-size:.85rem;line-height:1.55}
+
   /* Chart */
   .legend{display:flex;flex-wrap:wrap;gap:12px;margin-top:14px}
   .legend span{display:flex;align-items:center;gap:6px;font-size:.82rem;color:var(--txt-dim)}
@@ -206,6 +213,8 @@
       <button class="icon-btn" id="menuBtn" style="font-size:1.4rem">☰</button>
       <b>Mi Flujo Personal</b>
     </div>
+
+    <div id="verseBanner" class="verse-banner" style="display:none"></div>
 
     <!-- ===== DASHBOARD ===== -->
     <section class="view active" id="view-dashboard">
@@ -426,6 +435,7 @@
 <div class="auth-gate" id="authGate">
   <div class="auth-card">
     <div class="auth-brand"><span class="logo">JF</span><div><b>Mi Flujo Personal</b><div class="auth-sub">Gestor de finanzas personales</div></div></div>
+    <div class="auth-verse">📖 “Coloca tus inversiones en varios lugares, porque no sabes qué riesgos podría haber más adelante.” <span class="ref">Eclesiastés 11:2 NTV</span></div>
 
     <div id="authLoading" class="auth-loading">
       <div class="spinner"></div>
@@ -487,12 +497,29 @@ let currentMonth=todayISO().slice(0,7);
 
 function toast(msg){const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');clearTimeout(t._t);t._t=setTimeout(()=>t.classList.remove('show'),2600);}
 
+/* ============ Versículos por sección ============ */
+const VERSES={
+  ingresos:['Sean vuestras costumbres sin avaricia, contentos con lo que tenéis ahora; porque él dijo: No te desampararé, ni te dejaré.','Hebreos 13:5'],
+  fijos:['Mas buscad primeramente el reino de Dios y su justicia, y todas estas cosas os serán añadidas.','Mateo 6:33'],
+  variables:['Porque raíz de todos los males es el amor al dinero, el cual codiciando algunos, se extraviaron de la fe, y fueron traspasados de muchos dolores.','1 Timoteo 6:10'],
+  creditos:['Así como el rico gobierna al pobre, el que pide prestado es sirviente del que presta.','Proverbios 22:7 NTV'],
+  inversiones:['Los planes bien pensados y el arduo trabajo llevan a la prosperidad, pero los atajos tomados a la carrera conducen a la pobreza.','Proverbios 21:5 NTV'],
+  ahorro:['Los planes bien pensados y el arduo trabajo llevan a la prosperidad, pero los atajos tomados a la carrera conducen a la pobreza.','Proverbios 21:5 NTV']
+};
+function showVerse(view){
+  const el=document.getElementById('verseBanner'); if(!el) return;
+  const v=VERSES[view];
+  if(v){ el.innerHTML='📖 “'+v[0]+'” <span class="ref">'+v[1]+'</span>'; el.style.display='block'; }
+  else { el.style.display='none'; el.innerHTML=''; }
+}
+
 /* ============ Navegación ============ */
 document.querySelectorAll('.nav-btn').forEach(b=>b.onclick=()=>{
   document.querySelectorAll('.nav-btn').forEach(x=>x.classList.remove('active'));
   b.classList.add('active');
   document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
   document.getElementById('view-'+b.dataset.view).classList.add('active');
+  showVerse(b.dataset.view);
   document.getElementById('sidebar').classList.remove('open');
   document.getElementById('scrim').classList.remove('open');
   renderAll();
