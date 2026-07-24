@@ -4,6 +4,16 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Mi Flujo Personal — Gestor de Finanzas</title>
+<meta name="description" content="Gestor de finanzas personales: ingresos, gastos, créditos, inversiones y ahorro." />
+<meta name="theme-color" content="#6c8cff" />
+<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png" />
+<link rel="icon" type="image/png" sizes="512x512" href="icon-512.png" />
+<link rel="apple-touch-icon" href="apple-touch-icon.png" />
+<link rel="manifest" href="manifest.webmanifest" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="Flujo JF" />
 <style>
   :root{
     --bg:#0f1220; --bg-2:#161a2e; --card:#1b2038; --card-2:#232a49;
@@ -34,7 +44,7 @@
     padding:22px 16px;display:flex;flex-direction:column;gap:6px;position:sticky;top:0;height:100vh;overflow-y:auto}
   .brand{display:flex;align-items:center;gap:10px;padding:6px 8px 18px;font-weight:800;font-size:1.15rem}
   .brand .logo{width:38px;height:38px;border-radius:11px;background:linear-gradient(135deg,var(--accent),var(--accent-2));
-    display:grid;place-items:center;font-size:20px}
+    display:grid;place-items:center;font-size:17px;font-weight:800;color:#fff;letter-spacing:-1px}
   .nav-btn{display:flex;align-items:center;gap:12px;padding:11px 13px;border-radius:11px;border:none;
     background:transparent;color:var(--txt-dim);font-size:.95rem;font-weight:600;text-align:left;width:100%;transition:.15s}
   .nav-btn:hover{background:var(--card-2);color:var(--txt)}
@@ -158,7 +168,7 @@
     padding:30px;width:100%;max-width:400px;box-shadow:var(--shadow)}
   .auth-brand{display:flex;align-items:center;gap:12px;margin-bottom:22px}
   .auth-brand .logo{width:44px;height:44px;border-radius:12px;background:linear-gradient(135deg,var(--accent),var(--accent-2));
-    display:grid;place-items:center;font-size:22px}
+    display:grid;place-items:center;font-size:19px;font-weight:800;color:#fff;letter-spacing:-1px}
   .auth-brand b{font-size:1.15rem}
   .auth-sub{color:var(--muted);font-size:.82rem}
   .auth-error{background:var(--red-bg);color:var(--red);padding:10px 12px;border-radius:10px;font-size:.85rem;margin-bottom:12px}
@@ -172,7 +182,7 @@
 <div class="app">
   <!-- Sidebar -->
   <aside class="sidebar" id="sidebar">
-    <div class="brand"><span class="logo">💠</span> Mi Flujo Personal</div>
+    <div class="brand"><span class="logo">JF</span> Mi Flujo Personal</div>
     <button class="nav-btn active" data-view="dashboard"><span class="ic">📊</span> Resumen</button>
     <button class="nav-btn" data-view="ingresos"><span class="ic">💵</span> Ingresos</button>
     <button class="nav-btn" data-view="fijos"><span class="ic">📌</span> Gastos fijos</button>
@@ -376,6 +386,14 @@
       </div>
       <div class="row" style="margin-top:16px">
         <div class="col card">
+          <div class="section-title">📲 Instalar / descargar la app</div>
+          <p class="sub" style="color:var(--muted);margin:10px 0">Instálala en tu teléfono o PC para abrirla como una aplicación, con el ícono <b>JF</b> en tu pantalla de inicio.</p>
+          <button class="btn primary" id="installBtn" style="display:none" onclick="installApp()">📲 Instalar app</button>
+          <div id="installHint" class="sub" style="color:var(--muted);margin-top:8px">Si no aparece el botón: en <b>Chrome/Edge</b> usa el menú ⋮ → <b>Instalar aplicación</b>; en <b>iPhone (Safari)</b> usa <b>Compartir → Agregar a pantalla de inicio</b>.</div>
+        </div>
+      </div>
+      <div class="row" style="margin-top:16px">
+        <div class="col card">
           <div class="section-title">🧪 Datos de ejemplo</div>
           <p class="sub" style="color:var(--muted);margin:10px 0">Carga datos de muestra para explorar la app, o borra todo para empezar de cero.</p>
           <div style="display:flex;gap:10px;flex-wrap:wrap">
@@ -405,7 +423,7 @@
 <!-- Pantalla de acceso -->
 <div class="auth-gate" id="authGate">
   <div class="auth-card">
-    <div class="auth-brand"><span class="logo">💠</span><div><b>Mi Flujo Personal</b><div class="auth-sub">Gestor de finanzas personales</div></div></div>
+    <div class="auth-brand"><span class="logo">JF</span><div><b>Mi Flujo Personal</b><div class="auth-sub">Gestor de finanzas personales</div></div></div>
 
     <div id="authLoading" class="auth-loading">
       <div class="spinner"></div>
@@ -1258,6 +1276,18 @@ function renderAll(){
   renderIncome();renderExpenseTable('fixed','fixed');renderExpenseTable('variable','variable');
   renderInvest();renderGoals();renderCredits();renderAlerts();renderDashboard();
 }
+/* ---- Instalar como app (PWA) ---- */
+let deferredPrompt=null;
+window.addEventListener('beforeinstallprompt',e=>{ e.preventDefault(); deferredPrompt=e;
+  const b=document.getElementById('installBtn'); if(b)b.style.display='inline-flex';
+  const h=document.getElementById('installHint'); if(h)h.textContent='Pulsa el botón para instalar la app en este dispositivo.';
+});
+window.addEventListener('appinstalled',()=>{ const b=document.getElementById('installBtn'); if(b)b.style.display='none'; toast('App instalada ✓'); });
+function installApp(){
+  if(deferredPrompt){ deferredPrompt.prompt(); deferredPrompt.userChoice.finally(()=>{ deferredPrompt=null; const b=document.getElementById('installBtn'); if(b)b.style.display='none'; }); }
+  else { toast('Usa el menú del navegador → Instalar / Agregar a pantalla de inicio'); }
+}
+
 window.addEventListener('resize',()=>{drawBarChart();drawDonut();});
 applyTheme();renderAll();authGateInit();
 </script>
