@@ -431,6 +431,9 @@
       <div style="text-align:center;margin-top:14px">
         <a href="#" onclick="authReset();return false" style="font-size:.82rem">¿Olvidaste tu contraseña?</a>
       </div>
+      <div style="text-align:center;margin-top:10px">
+        <a href="#" onclick="authLocalMode();return false" style="font-size:.78rem;color:var(--muted)">Entrar sin conexión (modo local)</a>
+      </div>
     </div>
 
     <div id="authNoConfig" style="display:none">
@@ -1010,8 +1013,24 @@ function loadSample(){
 }
 
 /* ============ Sincronización en la nube (Firebase) ============ */
+// Configuración de Firebase incluida en la app: así se conecta sola en CUALQUIER
+// dispositivo sin tener que reingresarla. (No es secreta: viaja al navegador de todos modos;
+// la seguridad la dan las Reglas de Firestore + el inicio de sesión.)
+const DEFAULT_FB_CONFIG = {
+  apiKey: "AIzaSyALZ6vU0VWRFAFMPNMhh8ODHlfwodkSRFo",
+  authDomain: "flujo-personal-6bbef.firebaseapp.com",
+  projectId: "flujo-personal-6bbef",
+  storageBucket: "flujo-personal-6bbef.firebasestorage.app",
+  messagingSenderId: "42302700313",
+  appId: "1:42302700313:web:db8a7fe6308259193c2388",
+  measurementId: "G-CM91EYMRGJ"
+};
+function hasDefaultCfg(){ return !!(DEFAULT_FB_CONFIG && DEFAULT_FB_CONFIG.apiKey && !/^PON_/.test(DEFAULT_FB_CONFIG.apiKey)); }
 const CLOUD_KEY='miFlujo_fbConfig';
-let cloudCfg=(()=>{try{return JSON.parse(localStorage.getItem(CLOUD_KEY));}catch(e){return null;}})();
+let cloudCfg=(()=>{
+  try{ const saved=JSON.parse(localStorage.getItem(CLOUD_KEY)); if(saved&&saved.apiKey) return saved; }catch(e){}
+  return hasDefaultCfg()? DEFAULT_FB_CONFIG : null;   // usa la config incluida si no hay una guardada
+})();
 const META_KEY='miFlujo_updatedAt';
 const SESSION_ID=Math.random().toString(36).slice(2)+Date.now().toString(36); // identifica a este dispositivo/sesión
 let cloudUser=null, cloudInited=false, applyingRemote=false, initialSynced=false;
@@ -1193,6 +1212,8 @@ function saveCloudCfg(){
 }
 function clearCloudCfg(){ if(!confirm('¿Borrar la configuración de Firebase de este navegador? (tus datos locales no se borran)'))return; localStorage.removeItem(CLOUD_KEY); cloudCfg=null; cloudUser=null; toast('Configuración borrada'); setTimeout(()=>location.reload(),500); }
 
+let cloudEditCfg=false;
+function toggleCloudFields(){ cloudEditCfg=!cloudEditCfg; renderCloudUI(); }
 function renderCloudUI(){
   const statusEl=document.getElementById('cloudStatus'); if(!statusEl) return;
   const formEl=document.getElementById('cloudConfigForm'), actEl=document.getElementById('cloudActions'), sideEl=document.getElementById('sidebarCloud');
@@ -1201,21 +1222,29 @@ function renderCloudUI(){
       (lastSyncTime?`<div style="font-size:.78rem;color:var(--muted);margin-top:6px">Última sincronización: ${new Date(lastSyncTime).toLocaleString(S.currency.locale)}</div>`:'');
     if(sideEl)sideEl.innerHTML='☁️ Sincronizado en la nube<br><span style="opacity:.7">'+(cloudUser.email||'')+'</span>';
   } else if(cloudCfg){
-    statusEl.innerHTML=`<span class="pill" style="background:var(--amber-bg);color:var(--amber)">🟡 Configurado — falta conectar</span>`;
-    if(sideEl)sideEl.innerHTML='☁️ Configurado. Conéctate en ⚙️ Configuración.';
+    statusEl.innerHTML=`<span class="pill" style="background:var(--amber-bg);color:var(--amber)">🟡 Configurado — inicia sesión</span>`;
+    if(sideEl)sideEl.innerHTML='☁️ Configurado. Inicia sesión en ⚙️ Configuración.';
   } else {
     statusEl.innerHTML=`<span class="pill down">🔴 No configurado</span> <span style="color:var(--muted)">— los datos se guardan solo en este navegador.</span>`;
     if(sideEl)sideEl.innerHTML='Tus datos se guardan solo en este navegador. 🔒';
   }
   const c=cloudCfg||{};
   const fields=[['apiKey','API key'],['authDomain','Auth domain'],['projectId','Project ID'],['appId','App ID'],['storageBucket','Storage bucket (opcional)'],['messagingSenderId','Messaging sender ID (opcional)']];
-  formEl.innerHTML=cloudUser?'':fields.map(([k,l])=>`<div class="field"><label>${l}</label><input id="fb_${k}" value="${(c[k]||'').replace(/"/g,'&quot;')}" placeholder="${l}"></div>`).join('');
+  if(cloudUser){
+    formEl.innerHTML='';
+  } else if(cloudCfg && !cloudEditCfg){
+    formEl.innerHTML='<div class="sub" style="color:var(--green)">✅ La configuración de Firebase ya viene incluida en la app. No necesitas ingresarla: solo inicia sesión y funcionará igual en todos tus dispositivos.</div>';
+  } else {
+    formEl.innerHTML=fields.map(([k,l])=>`<div class="field"><label>${l}</label><input id="fb_${k}" value="${(c[k]||'').replace(/"/g,'&quot;')}" placeholder="${l}"></div>`).join('');
+  }
   let btns='';
   if(cloudUser){
     btns=`<button class="btn primary sm" onclick="cloudSyncNow()">🔄 Sincronizar ahora</button><button class="btn sm danger" onclick="cloudLogout()">Cerrar sesión</button>`;
+  } else if(cloudCfg && !cloudEditCfg){
+    btns=`<button class="btn primary sm" onclick="cloudLogin()">🔗 Conectar con Google</button><button class="btn sm" onclick="toggleCloudFields()">Usar otra configuración</button>`;
   } else {
     btns=`<button class="btn primary sm" onclick="saveCloudCfg()">💾 Guardar configuración</button>`;
-    if(cloudCfg) btns+=`<button class="btn sm" onclick="cloudLogin()">🔗 Conectar con Google</button><button class="btn sm danger" onclick="clearCloudCfg()">Borrar config</button>`;
+    if(cloudCfg) btns+=`<button class="btn sm" onclick="toggleCloudFields()">Cancelar</button>`;
   }
   actEl.innerHTML=btns;
 }
