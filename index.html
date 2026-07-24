@@ -1017,12 +1017,13 @@ function loadSample(){
 // dispositivo sin tener que reingresarla. (No es secreta: viaja al navegador de todos modos;
 // la seguridad la dan las Reglas de Firestore + el inicio de sesión.)
 const DEFAULT_FB_CONFIG = {
-  apiKey: "AIzaSyALZ6vU0VWRFAFMPNMhh8ODHIfwodkGRFo",
+  apiKey: "AIzaSyALZ6vU0VWRFAFMPNMhh8ODHlfwodkSRFo",
   authDomain: "flujo-personal-6bbef.firebaseapp.com",
   projectId: "flujo-personal-6bbef",
-  appId: "1:423027700313:web:xdb8a7fe6308259193c2388",
   storageBucket: "flujo-personal-6bbef.firebasestorage.app",
-  messagingSenderId: "423027700313"
+  messagingSenderId: "42302700313",
+  appId: "1:42302700313:web:db8a7fe6308259193c2388",
+  measurementId: "G-CM91EYMRGJ"
 };
 function hasDefaultCfg(){ return !!(DEFAULT_FB_CONFIG && DEFAULT_FB_CONFIG.apiKey && !/^PON_/.test(DEFAULT_FB_CONFIG.apiKey)); }
 const CLOUD_KEY='miFlujo_fbConfig';
