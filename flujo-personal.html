@@ -499,12 +499,15 @@ function toast(msg){const t=document.getElementById('toast');t.textContent=msg;t
 
 /* ============ Versículos por sección ============ */
 const VERSES={
+  dashboard:['Conoce bien la condición de tus rebaños y cuida de tus ganados, porque las riquezas no duran para siempre.','Proverbios 27:23-24 NTV'],
   ingresos:['Sean vuestras costumbres sin avaricia, contentos con lo que tenéis ahora; porque él dijo: No te desampararé, ni te dejaré.','Hebreos 13:5'],
   fijos:['Mas buscad primeramente el reino de Dios y su justicia, y todas estas cosas os serán añadidas.','Mateo 6:33'],
   variables:['Porque raíz de todos los males es el amor al dinero, el cual codiciando algunos, se extraviaron de la fe, y fueron traspasados de muchos dolores.','1 Timoteo 6:10'],
   creditos:['Así como el rico gobierna al pobre, el que pide prestado es sirviente del que presta.','Proverbios 22:7 NTV'],
   inversiones:['Los planes bien pensados y el arduo trabajo llevan a la prosperidad, pero los atajos tomados a la carrera conducen a la pobreza.','Proverbios 21:5 NTV'],
-  ahorro:['Los planes bien pensados y el arduo trabajo llevan a la prosperidad, pero los atajos tomados a la carrera conducen a la pobreza.','Proverbios 21:5 NTV']
+  ahorro:['Los planes bien pensados y el arduo trabajo llevan a la prosperidad, pero los atajos tomados a la carrera conducen a la pobreza.','Proverbios 21:5 NTV'],
+  alertas:['No debáis a nadie nada, sino el amaros unos a otros; porque el que ama al prójimo, ha cumplido la ley.','Romanos 13:8'],
+  config:['El que es fiel en lo muy poco, también en lo más grande es fiel; y el que en lo muy poco es injusto, también en lo más es injusto.','Lucas 16:10']
 };
 function showVerse(view){
   const el=document.getElementById('verseBanner'); if(!el) return;
@@ -1319,7 +1322,7 @@ function installApp(){
 }
 
 window.addEventListener('resize',()=>{drawBarChart();drawDonut();});
-applyTheme();renderAll();authGateInit();
+applyTheme();renderAll();authGateInit();showVerse('dashboard');
 </script>
 
 <!-- ============ Módulo Firebase (sincronización en la nube) ============ -->
