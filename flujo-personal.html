@@ -89,8 +89,10 @@
   /* Table */
   table{width:100%;border-collapse:collapse}
   th,td{text-align:left;padding:11px 12px;font-size:.9rem;border-bottom:1px solid var(--line)}
-  th{color:var(--muted);font-size:.76rem;text-transform:uppercase;letter-spacing:.4px;font-weight:700}
+  th{color:var(--muted);font-size:.76rem;text-transform:uppercase;letter-spacing:.4px;font-weight:700;
+    position:sticky;top:0;background:var(--card);z-index:3;box-shadow:0 1px 0 var(--line)}
   tbody tr:hover{background:var(--card-2)}
+  .mtag{white-space:nowrap;text-transform:capitalize;color:var(--txt);font-weight:700;font-size:.82rem}
   td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
   .tag{display:inline-block;padding:2px 9px;border-radius:7px;font-size:.76rem;font-weight:600;background:var(--card-2);color:var(--txt-dim)}
   .empty{padding:34px;text-align:center;color:var(--muted)}
@@ -479,6 +481,7 @@ function money(n){n=Number(n)||0;try{return new Intl.NumberFormat(S.currency.loc
 function ym(d){return d.slice(0,7);}
 function todayISO(){return new Date().toISOString().slice(0,10);}
 function monthName(y,m){return new Date(y,m,1).toLocaleDateString(S.currency.locale,{month:'long',year:'numeric'});}
+function monthTag(d){ if(!d) return '—'; const p=d.split('-'); return new Date(+p[0],+p[1]-1,1).toLocaleDateString(S.currency.locale,{month:'short',year:'numeric'}); }
 function daysBetween(a,b){return Math.round((new Date(b)-new Date(a))/86400000);}
 let currentMonth=todayISO().slice(0,7);
 
@@ -636,8 +639,8 @@ function renderIncome(){
   const list=[...S.income].sort((a,b)=>(b.date||'').localeCompare(a.date||''));
   const el=document.getElementById('incomeTable');
   if(!list.length){el.innerHTML=emptyMsg('Aún no registras ingresos. Agrega tu sueldo o entradas de dinero.');return;}
-  el.innerHTML=`<table><thead><tr><th>Fecha</th><th>Descripción</th><th>Categoría</th><th class="num">Monto</th><th></th></tr></thead><tbody>
-  ${list.map(x=>`<tr><td>${x.date||''}</td><td>${x.desc||''}</td><td><span class="tag">${x.category||'—'}</span></td>
+  el.innerHTML=`<table><thead><tr><th>Mes</th><th>Fecha</th><th>Descripción</th><th>Categoría</th><th class="num">Monto</th><th></th></tr></thead><tbody>
+  ${list.map(x=>`<tr><td><span class="mtag">${monthTag(x.date)}</span></td><td>${x.date||''}</td><td>${x.desc||''}</td><td><span class="tag">${x.category||'—'}</span></td>
   <td class="num pos">${money(x.amount)}</td>${actionCell('income',x.id)}</tr>`).join('')}
   </tbody></table>`;
 }
@@ -646,8 +649,8 @@ function renderExpenseTable(type,listName){
   const el=document.getElementById(type==='fixed'?'fixedTable':'variableTable');
   if(!list.length){el.innerHTML=emptyMsg('Sin registros todavía.');return;}
   const extra=type==='fixed'?'<th>Día pago</th>':'';
-  el.innerHTML=`<table><thead><tr><th>Fecha</th><th>Descripción</th><th>Categoría</th>${extra}<th class="num">Monto</th><th></th></tr></thead><tbody>
-  ${list.map(x=>`<tr><td>${x.date||''}</td><td>${x.desc||''}</td><td><span class="tag">${x.category||'—'}</span></td>
+  el.innerHTML=`<table><thead><tr><th>Mes</th><th>Fecha</th><th>Descripción</th><th>Categoría</th>${extra}<th class="num">Monto</th><th></th></tr></thead><tbody>
+  ${list.map(x=>`<tr><td><span class="mtag">${monthTag(x.date)}</span></td><td>${x.date||''}</td><td>${x.desc||''}</td><td><span class="tag">${x.category||'—'}</span></td>
   ${type==='fixed'?`<td>${x.dueDay?'día '+x.dueDay:'—'}</td>`:''}<td class="num neg">${money(x.amount)}</td>${actionCell(type,x.id)}</tr>`).join('')}
   </tbody></table>`;
 }
