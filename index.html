@@ -545,7 +545,7 @@ const FORMS={
   fixed:{title:'Gasto fijo',fields:[
     {k:'desc',l:'Descripción',t:'text',req:1,ph:'Renta, internet, Netflix...'},
     {k:'category',l:'Categoría',t:'select',opts:['Vivienda','Servicios','Suscripciones','Créditos','Seguros','Transporte','Educación','Salud','Otro']},
-    {k:'budget',l:'Estipulado (presupuesto)',t:'number',req:1},
+    {k:'budget',l:'Presupuesto',t:'number',req:1},
     {k:'spent',l:'Gastado hasta ahora',t:'number',def:0},
     {k:'dueDay',l:'Día de pago (1-31)',t:'number',ph:'ej. 5'},
     {k:'date',l:'Mes de registro',t:'date',req:1,def:todayISO()}
@@ -553,7 +553,7 @@ const FORMS={
   variable:{title:'Gasto variable',fields:[
     {k:'desc',l:'Descripción',t:'text',req:1,ph:'Súper, gasolina, cena...'},
     {k:'category',l:'Categoría',t:'select',opts:['Alimentación','Transporte','Ocio','Ropa','Salud','Hogar','Regalos','Viajes','Otro']},
-    {k:'budget',l:'Estipulado (presupuesto)',t:'number',req:1},
+    {k:'budget',l:'Presupuesto',t:'number',req:1},
     {k:'spent',l:'Gastado hasta ahora',t:'number',def:0},
     {k:'date',l:'Fecha',t:'date',req:1,def:todayISO()}
   ]},
@@ -686,7 +686,7 @@ function renderExpenseTable(type,listName){
   const el=document.getElementById(type==='fixed'?'fixedTable':'variableTable');
   if(!list.length){el.innerHTML=emptyMsg('Sin registros todavía.');return;}
   const extra=type==='fixed'?'<th>Día pago</th>':'';
-  el.innerHTML=`<table><thead><tr><th>Mes</th><th>Fecha</th><th>Descripción</th><th>Categoría</th>${extra}<th class="num">Estipulado</th><th class="num">Gastado</th><th class="num">Falta</th><th></th></tr></thead><tbody>
+  el.innerHTML=`<table><thead><tr><th>Mes</th><th>Fecha</th><th>Descripción</th><th>Categoría</th>${extra}<th class="num">Presupuesto</th><th class="num">Gastado</th><th class="num">Falta</th><th></th></tr></thead><tbody>
   ${list.map(x=>{const b=budgetOf(x),sp=spentOf(x),falta=b-sp;
   return `<tr><td><span class="mtag">${monthTag(x.date)}</span></td><td>${x.date||''}</td><td>${x.desc||''}</td><td><span class="tag">${x.category||'—'}</span></td>
   ${type==='fixed'?`<td>${x.dueDay?'día '+x.dueDay:'—'}</td>`:''}<td class="num">${money(b)}</td><td class="num neg">${money(sp)}</td><td class="num ${falta<0?'neg':'pos'}">${money(falta)}</td>${actionCell(type,x.id)}</tr>`;}).join('')}
@@ -881,7 +881,7 @@ function copyPrevMonth(){
   // evitar duplicar si el mes destino ya tiene datos
   const destTiene=inMonth(S.income,currentMonth).length+inMonth(S.fixed,currentMonth).length+inMonth(S.variable,currentMonth).length;
   const aviso=destTiene?`\n\n⚠️ ${monthName(y,mo-1)} ya tiene ${destTiene} registro(s); se AGREGARÁN los copiados (no se reemplazan).`:'';
-  if(!confirm(`Se copiarán de ${monthName(prevD.getFullYear(),prevD.getMonth())} a ${monthName(y,mo-1)}:\n• ${incs.length} ingreso(s)\n• ${fixs.length} gasto(s) fijo(s)\n• ${vars.length} gasto(s) variable(s)\n\nEn los gastos se copia lo Estipulado y el Gastado empieza en 0.\nSerán copias independientes: al editarlas NO se modifican otros meses.${aviso}\n\n¿Continuar?`)) return;
+  if(!confirm(`Se copiarán de ${monthName(prevD.getFullYear(),prevD.getMonth())} a ${monthName(y,mo-1)}:\n• ${incs.length} ingreso(s)\n• ${fixs.length} gasto(s) fijo(s)\n• ${vars.length} gasto(s) variable(s)\n\nEn los gastos se copia el Presupuesto y el Gastado empieza en 0.\nSerán copias independientes: al editarlas NO se modifican otros meses.${aviso}\n\n¿Continuar?`)) return;
   incs.forEach(x=>S.income.push({...x,id:uid(),date:shift(x.date)}));
   // En gastos: se conserva el presupuesto (Estipulado) y el Gastado arranca en 0
   fixs.forEach(x=>S.fixed.push({...x,id:uid(),date:shift(x.date),budget:budgetOf(x),spent:0}));
