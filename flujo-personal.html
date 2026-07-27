@@ -545,14 +545,16 @@ const FORMS={
   fixed:{title:'Gasto fijo',fields:[
     {k:'desc',l:'Descripción',t:'text',req:1,ph:'Renta, internet, Netflix...'},
     {k:'category',l:'Categoría',t:'select',opts:['Vivienda','Servicios','Suscripciones','Créditos','Seguros','Transporte','Educación','Salud','Otro']},
-    {k:'amount',l:'Monto',t:'number',req:1},
+    {k:'budget',l:'Estipulado (presupuesto)',t:'number',req:1},
+    {k:'spent',l:'Gastado hasta ahora',t:'number',def:0},
     {k:'dueDay',l:'Día de pago (1-31)',t:'number',ph:'ej. 5'},
     {k:'date',l:'Mes de registro',t:'date',req:1,def:todayISO()}
   ]},
   variable:{title:'Gasto variable',fields:[
     {k:'desc',l:'Descripción',t:'text',req:1,ph:'Súper, gasolina, cena...'},
     {k:'category',l:'Categoría',t:'select',opts:['Alimentación','Transporte','Ocio','Ropa','Salud','Hogar','Regalos','Viajes','Otro']},
-    {k:'amount',l:'Monto',t:'number',req:1},
+    {k:'budget',l:'Estipulado (presupuesto)',t:'number',req:1},
+    {k:'spent',l:'Gastado hasta ahora',t:'number',def:0},
     {k:'date',l:'Fecha',t:'date',req:1,def:todayISO()}
   ]},
   invest:{title:'Cuenta de inversión',fields:[
@@ -596,7 +598,9 @@ function openForm(type,id){
   document.getElementById('modalTitle').textContent=(id?'Editar ':'Nuevo ')+cfg.title.toLowerCase();
   const f=document.getElementById('modalForm');
   f.innerHTML=cfg.fields.map(fd=>{
-    const val=item?(item[fd.k]??''):(fd.def??'');
+    let val=item?(item[fd.k]??''):(fd.def??'');
+    // Registros antiguos con 'amount': precargar Estipulado/Gastado con ese valor
+    if(item && (fd.k==='budget'||fd.k==='spent') && (item[fd.k]==null||item[fd.k]==='') && item.amount!=null) val=item.amount;
     if(fd.t==='select'){
       return `<div class="field"><label>${fd.l}</label><select name="${fd.k}">${fd.opts.map(o=>`<option ${o===val?'selected':''}>${o}</option>`).join('')}</select></div>`;
     }
@@ -631,11 +635,14 @@ function monthIncome(m){
   // Cada mes es independiente: solo cuenta lo registrado en ese mes.
   return inMonth(S.income,m).reduce((a,b)=>a+(+b.amount||0),0);
 }
+// Presupuesto y gastado de un registro (compatibilidad con datos antiguos que usaban 'amount')
+function budgetOf(x){ return (x.budget!=null&&x.budget!=='') ? (+x.budget||0) : (+x.amount||0); }
+function spentOf(x){ return (x.spent!=null&&x.spent!=='') ? (+x.spent||0) : (+x.amount||0); }
 function monthFixed(m){
-  // Cada mes es independiente: solo cuenta los gastos fijos registrados en ese mes.
-  return inMonth(S.fixed,m).reduce((a,b)=>a+(+b.amount||0),0);
+  // Cada mes es independiente: cuenta lo GASTADO en los gastos fijos de ese mes.
+  return inMonth(S.fixed,m).reduce((a,b)=>a+spentOf(b),0);
 }
-function monthVariable(m){return inMonth(S.variable,m).reduce((a,b)=>a+(+b.amount||0),0);}
+function monthVariable(m){return inMonth(S.variable,m).reduce((a,b)=>a+spentOf(b),0);}
 function monthDiff(a,b){const[ay,am]=a.split('-').map(Number);const[by,bm]=b.split('-').map(Number);return (by-ay)*12+(bm-am);}
 function creditTermLeft(c){return Math.max(0,(+c.term||0)-(+c.paid||0));}
 // ¿la cuota del crédito c cae dentro del mes m?
@@ -679,9 +686,10 @@ function renderExpenseTable(type,listName){
   const el=document.getElementById(type==='fixed'?'fixedTable':'variableTable');
   if(!list.length){el.innerHTML=emptyMsg('Sin registros todavía.');return;}
   const extra=type==='fixed'?'<th>Día pago</th>':'';
-  el.innerHTML=`<table><thead><tr><th>Mes</th><th>Fecha</th><th>Descripción</th><th>Categoría</th>${extra}<th class="num">Monto</th><th></th></tr></thead><tbody>
-  ${list.map(x=>`<tr><td><span class="mtag">${monthTag(x.date)}</span></td><td>${x.date||''}</td><td>${x.desc||''}</td><td><span class="tag">${x.category||'—'}</span></td>
-  ${type==='fixed'?`<td>${x.dueDay?'día '+x.dueDay:'—'}</td>`:''}<td class="num neg">${money(x.amount)}</td>${actionCell(type,x.id)}</tr>`).join('')}
+  el.innerHTML=`<table><thead><tr><th>Mes</th><th>Fecha</th><th>Descripción</th><th>Categoría</th>${extra}<th class="num">Estipulado</th><th class="num">Gastado</th><th class="num">Falta</th><th></th></tr></thead><tbody>
+  ${list.map(x=>{const b=budgetOf(x),sp=spentOf(x),falta=b-sp;
+  return `<tr><td><span class="mtag">${monthTag(x.date)}</span></td><td>${x.date||''}</td><td>${x.desc||''}</td><td><span class="tag">${x.category||'—'}</span></td>
+  ${type==='fixed'?`<td>${x.dueDay?'día '+x.dueDay:'—'}</td>`:''}<td class="num">${money(b)}</td><td class="num neg">${money(sp)}</td><td class="num ${falta<0?'neg':'pos'}">${money(falta)}</td>${actionCell(type,x.id)}</tr>`;}).join('')}
   </tbody></table>`;
 }
 function renderInvest(){
@@ -809,7 +817,7 @@ function buildAlerts(){
     const d=new Date(today.getFullYear(),today.getMonth(),Math.min(28,x.dueDay));
     // si ya pasó este mes, usar el próximo mes
     if(daysBetween(todayISO(),d.toISOString().slice(0,10))<0)d.setMonth(d.getMonth()+1);
-    out.push({desc:x.desc,amount:x.amount,due:d.toISOString().slice(0,10),src:'Gasto fijo'});
+    out.push({desc:x.desc,amount:budgetOf(x),due:d.toISOString().slice(0,10),src:'Gasto fijo'});
   });
   // créditos activos con día de pago
   S.credits.filter(c=>c.dueDay&&creditTermLeft(c)>0).forEach(c=>{
@@ -936,8 +944,8 @@ function drawDonut(){
   const W=c.width=c.clientWidth*2;const H=c.height=440;ctx.clearRect(0,0,W,H);
   // agrupar por categoría (fijos vigentes + variables del mes)
   const cats={};
-  inMonth(S.fixed,currentMonth).forEach(x=>cats[x.category||'Otro']=(cats[x.category||'Otro']||0)+(+x.amount||0));
-  inMonth(S.variable,currentMonth).forEach(x=>cats[x.category||'Otro']=(cats[x.category||'Otro']||0)+(+x.amount||0));
+  inMonth(S.fixed,currentMonth).forEach(x=>cats[x.category||'Otro']=(cats[x.category||'Otro']||0)+spentOf(x));
+  inMonth(S.variable,currentMonth).forEach(x=>cats[x.category||'Otro']=(cats[x.category||'Otro']||0)+spentOf(x));
   const crd=monthCredits(currentMonth);if(crd>0)cats['Créditos']=(cats['Créditos']||0)+crd;
   const entries=Object.entries(cats).filter(e=>e[1]>0).sort((a,b)=>b[1]-a[1]);
   const total=entries.reduce((a,b)=>a+b[1],0);
@@ -958,8 +966,8 @@ function renderRule(){
   const inc=monthIncome(currentMonth);
   const need=['Vivienda','Servicios','Créditos','Seguros','Salud','Educación','Transporte'];
   let needs=0,wants=0;
-  inMonth(S.fixed,currentMonth).forEach(x=>{(need.includes(x.category)?needs+=(+x.amount||0):wants+=(+x.amount||0));});
-  inMonth(S.variable,currentMonth).forEach(x=>{(need.includes(x.category)||['Alimentación','Hogar'].includes(x.category)?needs+=(+x.amount||0):wants+=(+x.amount||0));});
+  inMonth(S.fixed,currentMonth).forEach(x=>{(need.includes(x.category)?needs+=spentOf(x):wants+=spentOf(x));});
+  inMonth(S.variable,currentMonth).forEach(x=>{(need.includes(x.category)||['Alimentación','Hogar'].includes(x.category)?needs+=spentOf(x):wants+=spentOf(x));});
   needs+=monthCredits(currentMonth); // las cuotas de crédito cuentan como necesidad
   const save=Math.max(0,inc-needs-wants);
   const rows=[['Necesidades (50%)',needs,0.5,'red'],['Deseos (30%)',wants,0.3,'amber'],['Ahorro/Inversión (20%)',save,0.2,'green']];
@@ -1012,8 +1020,8 @@ function exportData(){const blob=new Blob([JSON.stringify(S,null,2)],{type:'appl
 function exportCSV(){
   const rows=[['Tipo','Fecha','Descripción','Categoría','Monto']];
   S.income.forEach(x=>rows.push(['Ingreso',x.date,x.desc,x.category,x.amount]));
-  S.fixed.forEach(x=>rows.push(['Gasto fijo',x.date,x.desc,x.category,x.amount]));
-  S.variable.forEach(x=>rows.push(['Gasto variable',x.date,x.desc,x.category,x.amount]));
+  S.fixed.forEach(x=>rows.push(['Gasto fijo',x.date,x.desc,x.category,spentOf(x)]));
+  S.variable.forEach(x=>rows.push(['Gasto variable',x.date,x.desc,x.category,spentOf(x)]));
   S.invest.forEach(x=>rows.push(['Inversión',x.date,x.name,x.type,x.balance]));
   S.credits.forEach(c=>rows.push(['Crédito (pendiente)',c.startDate,c.name,c.type,(+c.payment||0)*creditTermLeft(c)]));
   const csv=rows.map(r=>r.map(v=>`"${(v??'').toString().replace(/"/g,'""')}"`).join(',')).join('\n');
@@ -1031,16 +1039,16 @@ function loadSample(){
     {id:uid(),desc:'Sueldo',category:'Salario',amount:28000,date:dt(-1,1),recurring:false}
   ];
   S.fixed=[
-    {id:uid(),desc:'Renta departamento',category:'Vivienda',amount:8500,dueDay:5,date:dt(0,1)},
-    {id:uid(),desc:'Internet + luz + agua',category:'Servicios',amount:2200,dueDay:15,date:dt(0,1)},
-    {id:uid(),desc:'Netflix + Spotify',category:'Suscripciones',amount:420,dueDay:20,date:dt(0,1)},
-    {id:uid(),desc:'Tarjeta de crédito',category:'Créditos',amount:3000,dueDay:22,date:dt(0,1)}
+    {id:uid(),desc:'Renta departamento',category:'Vivienda',budget:8500,spent:8500,dueDay:5,date:dt(0,1)},
+    {id:uid(),desc:'Internet + luz + agua',category:'Servicios',budget:2200,spent:1800,dueDay:15,date:dt(0,1)},
+    {id:uid(),desc:'Netflix + Spotify',category:'Suscripciones',budget:420,spent:420,dueDay:20,date:dt(0,1)},
+    {id:uid(),desc:'Tarjeta de crédito',category:'Créditos',budget:3000,spent:3000,dueDay:22,date:dt(0,1)}
   ];
   S.variable=[
-    {id:uid(),desc:'Súper de la semana',category:'Alimentación',amount:1800,date:dt(0,4)},
-    {id:uid(),desc:'Gasolina',category:'Transporte',amount:900,date:dt(0,6)},
-    {id:uid(),desc:'Cena con amigos',category:'Ocio',amount:650,date:dt(0,9)},
-    {id:uid(),desc:'Ropa',category:'Ropa',amount:1200,date:dt(0,14)}
+    {id:uid(),desc:'Súper de la semana',category:'Alimentación',budget:2500,spent:1800,date:dt(0,4)},
+    {id:uid(),desc:'Gasolina',category:'Transporte',budget:1200,spent:900,date:dt(0,6)},
+    {id:uid(),desc:'Cena con amigos',category:'Ocio',budget:800,spent:650,date:dt(0,9)},
+    {id:uid(),desc:'Ropa',category:'Ropa',budget:1500,spent:1200,date:dt(0,14)}
   ];
   S.invest=[
     {id:uid(),name:'CETES (Cetesdirecto)',type:'Renta fija',contributed:20000,balance:21800,date:dt(0,1)},
