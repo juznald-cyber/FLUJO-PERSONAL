@@ -881,10 +881,11 @@ function copyPrevMonth(){
   // evitar duplicar si el mes destino ya tiene datos
   const destTiene=inMonth(S.income,currentMonth).length+inMonth(S.fixed,currentMonth).length+inMonth(S.variable,currentMonth).length;
   const aviso=destTiene?`\n\n⚠️ ${monthName(y,mo-1)} ya tiene ${destTiene} registro(s); se AGREGARÁN los copiados (no se reemplazan).`:'';
-  if(!confirm(`Se copiarán de ${monthName(prevD.getFullYear(),prevD.getMonth())} a ${monthName(y,mo-1)}:\n• ${incs.length} ingreso(s)\n• ${fixs.length} gasto(s) fijo(s)\n• ${vars.length} gasto(s) variable(s)\n\nSerán copias independientes: al editarlas NO se modifican otros meses.${aviso}\n\n¿Continuar?`)) return;
+  if(!confirm(`Se copiarán de ${monthName(prevD.getFullYear(),prevD.getMonth())} a ${monthName(y,mo-1)}:\n• ${incs.length} ingreso(s)\n• ${fixs.length} gasto(s) fijo(s)\n• ${vars.length} gasto(s) variable(s)\n\nEn los gastos se copia lo Estipulado y el Gastado empieza en 0.\nSerán copias independientes: al editarlas NO se modifican otros meses.${aviso}\n\n¿Continuar?`)) return;
   incs.forEach(x=>S.income.push({...x,id:uid(),date:shift(x.date)}));
-  fixs.forEach(x=>S.fixed.push({...x,id:uid(),date:shift(x.date)}));
-  vars.forEach(x=>S.variable.push({...x,id:uid(),date:shift(x.date)}));
+  // En gastos: se conserva el presupuesto (Estipulado) y el Gastado arranca en 0
+  fixs.forEach(x=>S.fixed.push({...x,id:uid(),date:shift(x.date),budget:budgetOf(x),spent:0}));
+  vars.forEach(x=>S.variable.push({...x,id:uid(),date:shift(x.date),budget:budgetOf(x),spent:0}));
   save(); renderAll();
   toast('✓ '+total+' registro(s) copiado(s). Edita montos o fechas donde corresponda.');
 }
