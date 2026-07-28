@@ -1149,6 +1149,7 @@ let cloudCfg=(()=>{
   return hasDefaultCfg()? DEFAULT_FB_CONFIG : null;   // usa la config incluida si no hay una guardada
 })();
 const META_KEY='miFlujo_updatedAt';
+const OWNER_KEY='miFlujo_owner';   // uid del usuario dueño de los datos locales (para no mezclar flujos)
 const SESSION_ID=Math.random().toString(36).slice(2)+Date.now().toString(36); // identifica a este dispositivo/sesión
 let cloudUser=null, cloudInited=false, applyingRemote=false, initialSynced=false;
 let lastAppliedAt=0, lastSyncTime=0, pushTimer=null, cloudDirty=false;
@@ -1161,6 +1162,12 @@ window.onCloudError=(m)=>{ const msg=fbErrMsg(m||'error'); toast('Nube: '+msg); 
 window.onCloudAuth=(u)=>{ cloudUser=u; initialSynced=false; renderCloudUI();
   if(u&&window.CloudSync){
     document.getElementById('authGate').classList.remove('open');   // entrar: ocultar pantalla de acceso
+    // Si los datos locales pertenecen a OTRO usuario (o a nadie), limpiarlos para NO mezclar flujos
+    if(localStorage.getItem(OWNER_KEY)!==u.uid){
+      S=defaultState(); localStorage.setItem(KEY,JSON.stringify(S)); localStorage.setItem(META_KEY,'0');
+      localStorage.setItem(OWNER_KEY,u.uid); cloudDirty=false; lastAppliedAt=0;
+      applyTheme(); renderAll();
+    }
     toast('Bienvenido '+(u.email||'usuario')+' ☁️');
     window.CloudSync.subscribe(u.uid);   // escucha en vivo (aplica tras la reconciliación)
     cloudInitialSync(u.uid);             // reconcilia local vs nube al entrar
@@ -1222,7 +1229,13 @@ window.addEventListener('focus',()=>{ if(cloudUser && initialSynced) cloudRefres
 
 function cloudConnect(){ if(!cloudCfg||!window.CloudSync||cloudInited) return; cloudInited=true; window.CloudSync.init(cloudCfg); }
 function cloudLogin(){ if(!window.CloudSync){toast('Firebase aún no carga, espera un momento');return;} window.CloudSync.login().catch(e=>window.onCloudError(fbErrMsg(e.code||e.message))); }
-function cloudLogout(){ if(window.CloudSync) window.CloudSync.logout(); cloudUser=null; renderCloudUI(); toast('Sesión cerrada'); }
+function cloudLogout(){
+  if(window.CloudSync) window.CloudSync.logout();
+  cloudUser=null; initialSynced=false; cloudDirty=false;
+  // Limpiar los datos locales para que el próximo usuario no vea el flujo anterior
+  S=defaultState(); localStorage.setItem(KEY,JSON.stringify(S)); localStorage.setItem(META_KEY,'0'); localStorage.removeItem(OWNER_KEY);
+  applyTheme(); renderAll(); renderCloudUI(); toast('Sesión cerrada');
+}
 
 /* ---- Pantalla de acceso (usuario y contraseña) ---- */
 let authMode='login';
