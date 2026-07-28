@@ -682,20 +682,23 @@ function renderBudgetVsSpent(){
     </div>`;
 }
 function monthDiff(a,b){const[ay,am]=a.split('-').map(Number);const[by,bm]=b.split('-').map(Number);return (by-ay)*12+(bm-am);}
-function creditTermLeft(c){return Math.max(0,(+c.term||0)-(+c.paid||0));}
+function creditPaidCount(c){ return Array.isArray(c.payments) ? c.payments.length : (+c.paid||0); }
+function creditPaidInMonth(c,m){ return Array.isArray(c.payments) && c.payments.some(p=>p.month===m); }
+function creditTermLeft(c){return Math.max(0,(+c.term||0)-creditPaidCount(c));}
 // ¿la cuota del crédito c cae dentro del mes m?
 function creditActiveIn(c,m){
   const term=+c.term||0;if(term<=0)return false;
   if(c.startDate){const el=monthDiff(ym(c.startDate),m);return el>=0&&el<term;}
   return creditTermLeft(c)>0; // sin fecha: aproxima como activo mientras falten cuotas
 }
-function monthCredits(m){return S.credits.filter(c=>creditActiveIn(c,m)).reduce((a,c)=>a+(+c.payment||0),0);}
+// La cuota del crédito SOLO cuenta como egreso en el mes en que se marca como pagada
+function monthCredits(m){return S.credits.reduce((a,c)=>a+((c.payments||[]).filter(p=>p.month===m).reduce((s,p)=>s+(+p.amount||0),0)),0);}
 function monthExpense(m){return monthFixed(m)+monthVariable(m)+monthCredits(m);}
 function creditTotals(){
   let remaining=0,paidAmt=0,monthly=0,cuotasLeft=0;
   S.credits.forEach(c=>{
     const left=creditTermLeft(c),pay=+c.payment||0;
-    remaining+=pay*left; paidAmt+=pay*(+c.paid||0); cuotasLeft+=left;
+    remaining+=pay*left; paidAmt+=pay*creditPaidCount(c); cuotasLeft+=left;
     if(left>0)monthly+=pay;
   });
   return{remaining,paidAmt,monthly,cuotasLeft,active:S.credits.filter(c=>creditTermLeft(c)>0).length};
@@ -806,7 +809,7 @@ function addToGoal(id){const g=S.goals.find(x=>x.id===id);const v=prompt('¿Cuá
 function addMonths(dateStr,n){const d=new Date(dateStr);d.setMonth(d.getMonth()+n);return d;}
 function creditSchedule(c){
   // plan de las cuotas RESTANTES: nº, fecha, pago, saldo tras pagar
-  const term=+c.term||0,pay=+c.payment||0,paid=+c.paid||0;
+  const term=+c.term||0,pay=+c.payment||0,paid=creditPaidCount(c);
   const base=c.startDate||todayISO();
   const rows=[];
   for(let n=paid+1;n<=term;n++){
@@ -818,8 +821,20 @@ function creditSchedule(c){
 function payCredit(id){
   const c=S.credits.find(x=>x.id===id);if(!c)return;
   if(creditTermLeft(c)<=0){toast('Este crédito ya está pagado 🎉');return;}
-  c.paid=(+c.paid||0)+1;save();renderAll();
-  toast(creditTermLeft(c)<=0?'🎉 ¡Crédito liquidado!':'Cuota registrada ✓ ('+c.paid+'/'+c.term+')');
+  if(!Array.isArray(c.payments)){ c.payments=[]; const prev=+c.paid||0; for(let i=0;i<prev;i++) c.payments.push({month:null,amount:(+c.payment||0)}); } // migrar conteo previo (sin mes asignado)
+  c.payments.push({month:currentMonth,amount:(+c.payment||0)});
+  c.paid=creditPaidCount(c);
+  save();renderAll();
+  const[y,mo]=currentMonth.split('-');
+  toast(creditTermLeft(c)<=0?'🎉 ¡Crédito liquidado!':'Cuota de '+monthName(+y,+mo-1)+' registrada como egreso ✓');
+}
+function unpayCredit(id){
+  const c=S.credits.find(x=>x.id===id); if(!c||!Array.isArray(c.payments))return;
+  const idx=c.payments.map(p=>p.month).lastIndexOf(currentMonth);
+  if(idx<0){toast('No hay pago de este mes para deshacer');return;}
+  c.payments.splice(idx,1); c.paid=creditPaidCount(c); save();renderAll();
+  const[y,mo]=currentMonth.split('-');
+  toast('Pago de '+monthName(+y,+mo-1)+' deshecho');
 }
 function toggleSchedule(id){const el=document.getElementById('sched-'+id);if(el)el.style.display=el.style.display==='none'?'block':'none';}
 
@@ -836,8 +851,10 @@ function renderCredits(){
   const el=document.getElementById('creditsGrid');
   if(!S.credits.length){el.innerHTML=`<div class="card">${emptyMsg('Registra tus créditos (auto, hipoteca, tarjeta...) para seguir tu deuda mes a mes.')}</div>`;return;}
   el.innerHTML=S.credits.map(c=>{
-    const term=+c.term||0,pay=+c.payment||0,paid=+c.paid||0;
+    const term=+c.term||0,pay=+c.payment||0,paid=creditPaidCount(c);
     const left=creditTermLeft(c);
+    const paidThisMonth=creditPaidInMonth(c,currentMonth);
+    const [cy,cmo]=currentMonth.split('-'); const curMName=monthName(+cy,+cmo-1);
     const totalToPay=pay*term, remaining=pay*left, paidAmt=pay*paid;
     const pct=term?Math.min(100,paid/term*100):0;
     const done=left<=0;
@@ -861,8 +878,10 @@ function renderCredits(){
         <div><div style="color:var(--muted);font-size:.74rem">Ya pagado</div><b class="pos">${money(paidAmt)}</b></div>
         <div><div style="color:var(--muted);font-size:.74rem">Cuotas restantes</div><b>${left}</b></div>
       </div>
-      <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap">
-        ${done?'':`<button class="btn primary sm" onclick="payCredit('${c.id}')">✓ Registrar pago de cuota</button>`}
+      <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap;align-items:center">
+        ${paidThisMonth
+          ? `<span class="pill up">✓ Cuota de ${curMName} pagada (egreso)</span><button class="btn sm danger" onclick="unpayCredit('${c.id}')">Deshacer</button>`
+          : (done?'<span class="pill up">✅ Crédito liquidado</span>':`<button class="btn primary sm" onclick="payCredit('${c.id}')">✓ Marcar pago de ${curMName}</button>`)}
         <button class="btn sm" onclick="toggleSchedule('${c.id}')">📅 Ver plan mes a mes</button>
       </div>
       <div id="sched-${c.id}" style="display:none;margin-top:14px;max-height:320px;overflow-y:auto">
