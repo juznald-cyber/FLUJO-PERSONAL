@@ -1172,6 +1172,7 @@ window.onCloudAuth=(u)=>{ cloudUser=u; initialSynced=false; renderCloudUI();
     document.getElementById('authGate').classList.remove('open');   // entrar: ocultar pantalla de acceso
     activeUid=u.uid;                       // cambiar al almacenamiento local EXCLUSIVO de este usuario
     cloudDirty=false; lastAppliedAt=0;
+    currentMonth=todayISO().slice(0,7); showAllRecords=false;  // cada usuario arranca en el mes actual
     S=loadKey(dataKey());                  // cargar SOLO los datos de este usuario (o vacío si es nuevo)
     applyTheme(); renderAll();
     toast('Bienvenido '+(u.email||'usuario')+' ☁️');
@@ -1238,6 +1239,7 @@ function cloudLogin(){ if(!window.CloudSync){toast('Firebase aún no carga, espe
 function cloudLogout(){
   if(window.CloudSync) window.CloudSync.logout();
   cloudUser=null; initialSynced=false; cloudDirty=false; activeUid=null;
+  currentMonth=todayISO().slice(0,7); showAllRecords=false;   // volver al mes actual
   S=defaultState();                        // limpiar la pantalla (cada usuario conserva lo suyo en su propio espacio)
   applyTheme(); renderAll(); renderCloudUI(); toast('Sesión cerrada');
 }
