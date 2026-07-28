@@ -93,6 +93,10 @@
     position:sticky;top:0;background:var(--card);z-index:3;box-shadow:0 1px 0 var(--line)}
   tbody tr:hover{background:var(--card-2)}
   .mtag{white-space:nowrap;text-transform:capitalize;color:var(--txt);font-weight:700;font-size:.82rem}
+  .filterbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:.85rem;color:var(--txt-dim);
+    padding:10px 13px;margin-bottom:14px;background:var(--card-2);border-radius:10px}
+  .filterbar a{font-weight:700;cursor:pointer}
+  .filterbar b{text-transform:capitalize}
   td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
   .tag{display:inline-block;padding:2px 9px;border-radius:7px;font-size:.76rem;font-weight:600;background:var(--card-2);color:var(--txt-dim)}
   .empty{padding:34px;text-align:center;color:var(--muted)}
@@ -672,21 +676,39 @@ function investTotals(){
 function emptyMsg(txt){return `<div class="empty"><span class="big">📭</span>${txt}</div>`;}
 function actionCell(type,id){return `<td class="num"><button class="icon-btn" onclick="openForm('${type}','${id}')">✏️</button><button class="icon-btn" onclick="del('${type}','${id}')">🗑️</button></td>`;}
 
+// Filtro: por defecto solo el mes actual; opción de ver todos los meses
+let showAllRecords=false;
+function toggleAllRecords(){ showAllRecords=!showAllRecords; renderAll(); }
+function monthFilterBar(shown,total){
+  const [y,mo]=currentMonth.split('-'); const mName=monthName(+y,+mo-1);
+  if(showAllRecords){
+    return `<div class="filterbar">📅 Mostrando <b>todos los meses</b> (${total} registros) · <a onclick="toggleAllRecords()">Ver solo ${mName}</a></div>`;
+  }
+  return `<div class="filterbar">📅 Mostrando <b>${mName}</b> (${shown} registro${shown===1?'':'s'}) · <a onclick="toggleAllRecords()">Ver todos los meses</a></div>`;
+}
+function applyMonthFilter(all){ return showAllRecords ? all : all.filter(x=>x.date&&ym(x.date)===currentMonth); }
+
 function renderIncome(){
-  const list=[...S.income].sort((a,b)=>(b.date||'').localeCompare(a.date||''));
   const el=document.getElementById('incomeTable');
-  if(!list.length){el.innerHTML=emptyMsg('Aún no registras ingresos. Agrega tu sueldo o entradas de dinero.');return;}
-  el.innerHTML=`<table><thead><tr><th>Mes</th><th>Fecha</th><th>Descripción</th><th>Categoría</th><th class="num">Monto</th><th></th></tr></thead><tbody>
+  const all=[...S.income].sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+  if(!all.length){el.innerHTML=emptyMsg('Aún no registras ingresos. Agrega tu sueldo o entradas de dinero.');return;}
+  const list=applyMonthFilter(all);
+  const bar=monthFilterBar(list.length,all.length);
+  if(!list.length){el.innerHTML=bar+emptyMsg('No hay ingresos en este mes. Usa "Ver todos los meses" o agrega uno.');return;}
+  el.innerHTML=bar+`<table><thead><tr><th>Mes</th><th>Fecha</th><th>Descripción</th><th>Categoría</th><th class="num">Monto</th><th></th></tr></thead><tbody>
   ${list.map(x=>`<tr><td><span class="mtag">${monthTag(x.date)}</span></td><td>${x.date||''}</td><td>${x.desc||''}</td><td><span class="tag">${x.category||'—'}</span></td>
   <td class="num pos">${money(x.amount)}</td>${actionCell('income',x.id)}</tr>`).join('')}
   </tbody></table>`;
 }
 function renderExpenseTable(type,listName){
-  const list=[...S[listName]].sort((a,b)=>(b.date||'').localeCompare(a.date||''));
   const el=document.getElementById(type==='fixed'?'fixedTable':'variableTable');
-  if(!list.length){el.innerHTML=emptyMsg('Sin registros todavía.');return;}
+  const all=[...S[listName]].sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+  if(!all.length){el.innerHTML=emptyMsg('Sin registros todavía.');return;}
+  const list=applyMonthFilter(all);
+  const bar=monthFilterBar(list.length,all.length);
   const extra=type==='fixed'?'<th>Día pago</th>':'';
-  el.innerHTML=`<table><thead><tr><th>Mes</th><th>Fecha</th><th>Descripción</th><th>Categoría</th>${extra}<th class="num">Presupuesto</th><th class="num">Gastado</th><th class="num">Falta</th><th></th></tr></thead><tbody>
+  if(!list.length){el.innerHTML=bar+emptyMsg('No hay gastos en este mes. Usa "Ver todos los meses" o agrega uno.');return;}
+  el.innerHTML=bar+`<table><thead><tr><th>Mes</th><th>Fecha</th><th>Descripción</th><th>Categoría</th>${extra}<th class="num">Presupuesto</th><th class="num">Gastado</th><th class="num">Falta</th><th></th></tr></thead><tbody>
   ${list.map(x=>{const b=budgetOf(x),sp=spentOf(x),falta=b-sp;
   return `<tr><td><span class="mtag">${monthTag(x.date)}</span></td><td>${x.date||''}</td><td>${x.desc||''}</td><td><span class="tag">${x.category||'—'}</span></td>
   ${type==='fixed'?`<td>${x.dueDay?'día '+x.dueDay:'—'}</td>`:''}<td class="num">${money(b)}</td><td class="num neg">${money(sp)}</td><td class="num ${falta<0?'neg':'pos'}">${money(falta)}</td>${actionCell(type,x.id)}</tr>`;}).join('')}
