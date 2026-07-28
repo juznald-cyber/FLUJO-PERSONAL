@@ -321,6 +321,7 @@
         <div class="card stat"><div class="label">📅 Cuota mensual total</div><div class="value" id="crMonthly">$0</div><div class="hint">Suma de créditos activos</div></div>
         <div class="card stat"><div class="label">✅ Ya pagado</div><div class="value pos" id="crPaid">$0</div><div class="hint" id="crPaidHint"></div></div>
       </div>
+      <div id="creditMonthBar"></div>
       <div class="grid cards" id="creditsGrid"></div>
     </section>
 
@@ -847,6 +848,9 @@ function renderCredits(){
   document.getElementById('crPaidHint').textContent=t.active+' crédito(s) activo(s)';
   const badge=document.getElementById('creditBadge');
   if(t.active>0){badge.style.display='';badge.textContent=t.active;}else badge.style.display='none';
+
+  const mbar=document.getElementById('creditMonthBar');
+  if(mbar) mbar.innerHTML=`<div class="filterbar">📅 Marcar/ver pagos del mes: <select onchange="setMonth(this.value)">${monthOptionsHTML()}</select></div>`;
 
   const el=document.getElementById('creditsGrid');
   if(!S.credits.length){el.innerHTML=`<div class="card">${emptyMsg('Registra tus créditos (auto, hipoteca, tarjeta...) para seguir tu deuda mes a mes.')}</div>`;return;}
