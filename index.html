@@ -97,6 +97,7 @@
     padding:10px 13px;margin-bottom:14px;background:var(--card-2);border-radius:10px}
   .filterbar a{font-weight:700;cursor:pointer}
   .filterbar b{text-transform:capitalize}
+  .filterbar select{background:var(--bg-2);color:var(--txt);border:1px solid var(--line);border-radius:8px;padding:5px 9px;font-weight:600;font-family:inherit;text-transform:capitalize}
   td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
   .tag{display:inline-block;padding:2px 9px;border-radius:7px;font-size:.76rem;font-weight:600;background:var(--card-2);color:var(--txt-dim)}
   .empty{padding:34px;text-align:center;color:var(--muted)}
@@ -550,7 +551,7 @@ const FORMS={
     {k:'desc',l:'Descripción',t:'text',req:1,ph:'Renta, internet, Netflix...'},
     {k:'category',l:'Categoría',t:'select',opts:['Vivienda','Servicios','Suscripciones','Créditos','Seguros','Transporte','Educación','Salud','Otro']},
     {k:'budget',l:'Presupuesto',t:'number',req:1},
-    {k:'spent',l:'Gastado hasta ahora',t:'number',def:0},
+    {k:'spent',l:'Egreso hasta ahora',t:'number',def:0},
     {k:'dueDay',l:'Día de pago (1-31)',t:'number',ph:'ej. 5'},
     {k:'date',l:'Mes de registro',t:'date',req:1,def:todayISO()}
   ]},
@@ -558,7 +559,7 @@ const FORMS={
     {k:'desc',l:'Descripción',t:'text',req:1,ph:'Súper, gasolina, cena...'},
     {k:'category',l:'Categoría',t:'select',opts:['Alimentación','Transporte','Ocio','Ropa','Salud','Hogar','Regalos','Viajes','Otro']},
     {k:'budget',l:'Presupuesto',t:'number',req:1},
-    {k:'spent',l:'Gastado hasta ahora',t:'number',def:0},
+    {k:'spent',l:'Egreso hasta ahora',t:'number',def:0},
     {k:'date',l:'Fecha',t:'date',req:1,def:todayISO()}
   ]},
   invest:{title:'Cuenta de inversión',fields:[
@@ -679,12 +680,20 @@ function actionCell(type,id){return `<td class="num"><button class="icon-btn" on
 // Filtro: por defecto solo el mes actual; opción de ver todos los meses
 let showAllRecords=false;
 function toggleAllRecords(){ showAllRecords=!showAllRecords; renderAll(); }
+function setMonth(m){ currentMonth=m; showAllRecords=false; renderAll(); }
+function monthOptionsHTML(){
+  const set=new Set([currentMonth, todayISO().slice(0,7)]);
+  [...S.income,...S.variable,...S.fixed].forEach(x=>{if(x.date)set.add(ym(x.date));});
+  const nowD=new Date();
+  for(let i=1;i<=3;i++){const d=new Date(nowD.getFullYear(),nowD.getMonth()+i,1);set.add(d.toISOString().slice(0,7));}
+  return [...set].sort().reverse().map(m=>{const[y,mo]=m.split('-');return `<option value="${m}" ${m===currentMonth?'selected':''}>${monthName(+y,+mo-1)}</option>`;}).join('');
+}
 function monthFilterBar(shown,total){
-  const [y,mo]=currentMonth.split('-'); const mName=monthName(+y,+mo-1);
   if(showAllRecords){
-    return `<div class="filterbar">📅 Mostrando <b>todos los meses</b> (${total} registros) · <a onclick="toggleAllRecords()">Ver solo ${mName}</a></div>`;
+    return `<div class="filterbar">📅 Mostrando <b>todos los meses</b> (${total} registros) · <a onclick="toggleAllRecords()">Ver un solo mes</a></div>`;
   }
-  return `<div class="filterbar">📅 Mostrando <b>${mName}</b> (${shown} registro${shown===1?'':'s'}) · <a onclick="toggleAllRecords()">Ver todos los meses</a></div>`;
+  const sel=`<select onchange="setMonth(this.value)">${monthOptionsHTML()}</select>`;
+  return `<div class="filterbar">📅 Mes: ${sel} <span style="color:var(--muted)">(${shown} registro${shown===1?'':'s'})</span> · <a onclick="toggleAllRecords()">Ver todos los meses</a></div>`;
 }
 function applyMonthFilter(all){ return showAllRecords ? all : all.filter(x=>x.date&&ym(x.date)===currentMonth); }
 
@@ -708,7 +717,7 @@ function renderExpenseTable(type,listName){
   const bar=monthFilterBar(list.length,all.length);
   const extra=type==='fixed'?'<th>Día pago</th>':'';
   if(!list.length){el.innerHTML=bar+emptyMsg('No hay gastos en este mes. Usa "Ver todos los meses" o agrega uno.');return;}
-  el.innerHTML=bar+`<table><thead><tr><th>Mes</th><th>Fecha</th><th>Descripción</th><th>Categoría</th>${extra}<th class="num">Presupuesto</th><th class="num">Gastado</th><th class="num">Falta</th><th></th></tr></thead><tbody>
+  el.innerHTML=bar+`<table><thead><tr><th>Mes</th><th>Fecha</th><th>Descripción</th><th>Categoría</th>${extra}<th class="num">Presupuesto</th><th class="num">Egreso</th><th class="num">Saldo</th><th></th></tr></thead><tbody>
   ${list.map(x=>{const b=budgetOf(x),sp=spentOf(x),falta=b-sp;
   return `<tr><td><span class="mtag">${monthTag(x.date)}</span></td><td>${x.date||''}</td><td>${x.desc||''}</td><td><span class="tag">${x.category||'—'}</span></td>
   ${type==='fixed'?`<td>${x.dueDay?'día '+x.dueDay:'—'}</td>`:''}<td class="num">${money(b)}</td><td class="num neg">${money(sp)}</td><td class="num ${falta<0?'neg':'pos'}">${money(falta)}</td>${actionCell(type,x.id)}</tr>`;}).join('')}
@@ -903,7 +912,7 @@ function copyPrevMonth(){
   // evitar duplicar si el mes destino ya tiene datos
   const destTiene=inMonth(S.income,currentMonth).length+inMonth(S.fixed,currentMonth).length+inMonth(S.variable,currentMonth).length;
   const aviso=destTiene?`\n\n⚠️ ${monthName(y,mo-1)} ya tiene ${destTiene} registro(s); se AGREGARÁN los copiados (no se reemplazan).`:'';
-  if(!confirm(`Se copiarán de ${monthName(prevD.getFullYear(),prevD.getMonth())} a ${monthName(y,mo-1)}:\n• ${incs.length} ingreso(s)\n• ${fixs.length} gasto(s) fijo(s)\n• ${vars.length} gasto(s) variable(s)\n\nEn los gastos se copia el Presupuesto y el Gastado empieza en 0.\nSerán copias independientes: al editarlas NO se modifican otros meses.${aviso}\n\n¿Continuar?`)) return;
+  if(!confirm(`Se copiarán de ${monthName(prevD.getFullYear(),prevD.getMonth())} a ${monthName(y,mo-1)}:\n• ${incs.length} ingreso(s)\n• ${fixs.length} gasto(s) fijo(s)\n• ${vars.length} gasto(s) variable(s)\n\nEn los gastos se copia el Presupuesto y el Egreso empieza en 0.\nSerán copias independientes: al editarlas NO se modifican otros meses.${aviso}\n\n¿Continuar?`)) return;
   incs.forEach(x=>S.income.push({...x,id:uid(),date:shift(x.date)}));
   // En gastos: se conserva el presupuesto (Estipulado) y el Gastado arranca en 0
   fixs.forEach(x=>S.fixed.push({...x,id:uid(),date:shift(x.date),budget:budgetOf(x),spent:0}));
