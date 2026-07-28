@@ -243,6 +243,12 @@
         <div class="card stat"><div class="label">💳 Deuda pendiente</div><div class="value neg" id="sDebt">$0</div><div class="hint" id="sDebtHint"></div></div>
       </div>
 
+      <div class="card" style="margin-bottom:16px">
+        <div class="section-title"><span class="ic">🎯</span> Presupuesto vs Egreso del mes</div>
+        <div class="sub" style="color:var(--muted);margin:4px 0 12px">Gastos fijos y variables del mes seleccionado.</div>
+        <div id="budgetVsSpent"></div>
+      </div>
+
       <div class="row" style="margin-bottom:16px">
         <div class="col card">
           <div class="section-title"><span class="ic">📉</span> Ingresos vs Gastos (últimos 6 meses)</div>
@@ -648,6 +654,25 @@ function monthFixed(m){
   return inMonth(S.fixed,m).reduce((a,b)=>a+spentOf(b),0);
 }
 function monthVariable(m){return inMonth(S.variable,m).reduce((a,b)=>a+spentOf(b),0);}
+function monthBudget(m){ return inMonth(S.fixed,m).reduce((a,b)=>a+budgetOf(b),0)+inMonth(S.variable,m).reduce((a,b)=>a+budgetOf(b),0); }
+function renderBudgetVsSpent(){
+  const el=document.getElementById('budgetVsSpent'); if(!el) return;
+  const budget=monthBudget(currentMonth), egreso=monthFixed(currentMonth)+monthVariable(currentMonth);
+  if(budget<=0 && egreso<=0){ el.innerHTML='<div class="empty" style="padding:14px">Sin gastos fijos ni variables este mes.</div>'; return; }
+  const saldo=budget-egreso, pct=budget>0?egreso/budget*100:100;
+  const cls=pct>100?'red':pct>=85?'amber':'green';
+  el.innerHTML=`
+    <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:8px;font-size:.92rem">
+      <span>Presupuesto: <b>${money(budget)}</b></span>
+      <span>Egreso: <b class="neg">${money(egreso)}</b></span>
+      <span>Saldo: <b class="${saldo<0?'neg':'pos'}">${money(saldo)}</b></span>
+    </div>
+    <div class="bar ${cls}"><span style="width:${Math.min(100,pct)}%"></span></div>
+    <div style="display:flex;justify-content:space-between;margin-top:6px;font-size:.8rem;color:var(--muted)">
+      <span>${pct.toFixed(0)}% del presupuesto usado</span>
+      <span>${saldo>=0?'Te queda '+money(saldo)+' por gastar':'Te pasaste por '+money(Math.abs(saldo))}</span>
+    </div>`;
+}
 function monthDiff(a,b){const[ay,am]=a.split('-').map(Number);const[by,bm]=b.split('-').map(Number);return (by-ay)*12+(bm-am);}
 function creditTermLeft(c){return Math.max(0,(+c.term||0)-(+c.paid||0));}
 // ¿la cuota del crédito c cae dentro del mes m?
@@ -938,6 +963,7 @@ function renderDashboard(){
   document.getElementById('sDebt').textContent=money(ct.remaining);
   document.getElementById('sDebtHint').textContent=ct.cuotasLeft>0?ct.cuotasLeft+' cuotas · '+money(ct.monthly)+'/mes':'Sin deudas 🎉';
 
+  renderBudgetVsSpent();
   drawBarChart();drawDonut();renderRule();renderHealth();renderAlerts();
 }
 
