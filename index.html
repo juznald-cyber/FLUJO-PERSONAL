@@ -213,7 +213,7 @@
     <div id="sidebarCloud" style="margin-top:auto;padding-top:16px;font-size:.75rem;color:var(--muted)">
       Tus datos se guardan solo en este navegador. 🔒
     </div>
-    <div style="font-size:.68rem;color:var(--muted);opacity:.7;padding-top:8px">Versión 2026-07-24 · exportar a Excel</div>
+    <div style="font-size:.68rem;color:var(--muted);opacity:.7;padding-top:8px">Versión 2026-07-24 · Excel por mes</div>
   </aside>
   <div class="scrim" id="scrim"></div>
 
@@ -405,6 +405,10 @@
         <div class="col card">
           <div class="section-title">💾 Respaldo de datos</div>
           <p class="sub" style="color:var(--muted);margin:10px 0">Exporta un archivo JSON con toda tu información o impórtalo en otro dispositivo.</p>
+          <div class="field" style="margin-bottom:10px;max-width:280px">
+            <label>Mes del informe Excel</label>
+            <select id="exportMonth"></select>
+          </div>
           <div style="display:flex;gap:10px;flex-wrap:wrap">
             <button class="btn" onclick="exportData()">⬇️ Exportar JSON</button>
             <button class="btn" onclick="document.getElementById('importFile').click()">⬆️ Importar JSON</button>
@@ -1171,24 +1175,46 @@ function _buildXlsx(sheets){
   sheets.forEach((s,i)=>files.push({name:`xl/worksheets/sheet${i+1}.xml`,data:enc.encode(_sheetXml(s.rows))}));
   return _zip(files);
 }
+function renderExportOptions(){
+  const sel=document.getElementById('exportMonth'); if(!sel) return;
+  const set=new Set([currentMonth]);
+  [...S.income,...S.fixed,...S.variable].forEach(x=>{if(x.date)set.add(ym(x.date));});
+  S.credits.forEach(c=>(c.payments||[]).forEach(p=>{if(p.month)set.add(p.month);}));
+  const months=[...set].sort().reverse();
+  const prev=sel.value;
+  sel.innerHTML='<option value="all">Todos los meses</option>'+months.map(m=>{const[y,mo]=m.split('-');return `<option value="${m}">${monthName(+y,+mo-1)}</option>`;}).join('');
+  sel.value = prev || currentMonth;
+  if(!sel.value) sel.value='all';
+}
 function exportXLSX(){
   const n=v=>Math.round((+v||0)*100)/100;
   const cap=d=>{const t=monthTag(d);return t.charAt(0).toUpperCase()+t.slice(1);};
   const byDate=(a,b)=>(b.date||'').localeCompare(a.date||'');
+  const selEl=document.getElementById('exportMonth');
+  const scope=selEl?selEl.value:'all';
+  const only=(scope&&scope!=='all')?scope:null;
+  const fMon=x=>!only||(x.date&&ym(x.date)===only);
+  const monLabel=only?(()=>{const[y,mo]=only.split('-');const nm=monthName(+y,+mo-1);return nm.charAt(0).toUpperCase()+nm.slice(1);})():'Todos los meses';
   // Ingresos
   const income=[['Mes','Fecha','Descripción','Categoría','Monto']];
-  [...S.income].sort(byDate).forEach(x=>income.push([cap(x.date),x.date||'',x.desc||'',x.category||'',n(x.amount)]));
+  [...S.income].filter(fMon).sort(byDate).forEach(x=>income.push([cap(x.date),x.date||'',x.desc||'',x.category||'',n(x.amount)]));
   // Gastos fijos
   const fixed=[['Mes','Fecha','Descripción','Categoría','Día de pago','Presupuesto','Egreso','Saldo']];
-  [...S.fixed].sort(byDate).forEach(x=>fixed.push([cap(x.date),x.date||'',x.desc||'',x.category||'',x.dueDay||'',n(budgetOf(x)),n(spentOf(x)),n(budgetOf(x)-spentOf(x))]));
+  [...S.fixed].filter(fMon).sort(byDate).forEach(x=>fixed.push([cap(x.date),x.date||'',x.desc||'',x.category||'',x.dueDay||'',n(budgetOf(x)),n(spentOf(x)),n(budgetOf(x)-spentOf(x))]));
   // Gastos variables
   const variable=[['Mes','Fecha','Descripción','Categoría','Presupuesto','Egreso','Saldo']];
-  [...S.variable].sort(byDate).forEach(x=>variable.push([cap(x.date),x.date||'',x.desc||'',x.category||'',n(budgetOf(x)),n(spentOf(x)),n(budgetOf(x)-spentOf(x))]));
+  [...S.variable].filter(fMon).sort(byDate).forEach(x=>variable.push([cap(x.date),x.date||'',x.desc||'',x.category||'',n(budgetOf(x)),n(spentOf(x)),n(budgetOf(x)-spentOf(x))]));
   // Créditos
-  const credits=[['Nombre','Entidad','Tipo','Cuota mensual','Plazo','Cuotas pagadas','Cuotas restantes','Deuda pendiente','Tasa % anual','Día de pago','Primera cuota','Meses pagados']];
-  S.credits.forEach(c=>{const pc=creditPaidCount(c),left=creditTermLeft(c);const months=(c.payments||[]).filter(p=>p.month).map(p=>p.month).join(', ');
-    credits.push([c.name||'',c.entity||'',c.type||'',n(c.payment),(+c.term||0),pc,left,n((+c.payment||0)*left),(+c.rate||0),c.dueDay||'',c.startDate||'',months]);});
-  // Inversiones
+  let credits;
+  if(only){
+    credits=[['Nombre','Entidad','Tipo','Cuota mensual','¿Pagada en el mes?','Egreso del mes','Deuda pendiente']];
+    S.credits.forEach(c=>{const pg=creditPaidInMonth(c,only);credits.push([c.name||'',c.entity||'',c.type||'',n(c.payment),pg?'Sí':'No',n(pg?(+c.payment||0):0),n((+c.payment||0)*creditTermLeft(c))]);});
+  } else {
+    credits=[['Nombre','Entidad','Tipo','Cuota mensual','Plazo','Cuotas pagadas','Cuotas restantes','Deuda pendiente','Tasa % anual','Día de pago','Primera cuota','Meses pagados']];
+    S.credits.forEach(c=>{const pc=creditPaidCount(c),left=creditTermLeft(c);const months=(c.payments||[]).filter(p=>p.month).map(p=>p.month).join(', ');
+      credits.push([c.name||'',c.entity||'',c.type||'',n(c.payment),(+c.term||0),pc,left,n((+c.payment||0)*left),(+c.rate||0),c.dueDay||'',c.startDate||'',months]);});
+  }
+  // Inversiones (estado actual)
   const invest=[['Nombre','Tipo','Aportado','Valor actual','Rendimiento','% rend.','Fecha corte']];
   S.invest.forEach(x=>{const g=(+x.balance||0)-(+x.contributed||0);const pct=x.contributed?g/(+x.contributed)*100:0;
     invest.push([x.name||'',x.type||'',n(x.contributed),n(x.balance),n(g),n(pct),x.date||'']);});
@@ -1198,17 +1224,20 @@ function exportXLSX(){
   // Recordatorios
   const rem=[['Descripción','Monto','Vence']];
   S.reminders.forEach(r=>rem.push([r.desc||'',n(r.amount),r.due||'']));
-  // Resumen por mes
+  // Resumen (mes elegido o todos)
   const mset=new Set();
   [...S.income,...S.fixed,...S.variable].forEach(x=>{if(x.date)mset.add(ym(x.date));});
   S.credits.forEach(c=>(c.payments||[]).forEach(p=>{if(p.month)mset.add(p.month);}));
+  let months=[...mset].sort().reverse();
+  if(only) months=months.filter(m=>m===only);
   const resumen=[['Mes','Ingresos','Gastos fijos','Gastos variables','Créditos pagados','Egreso total','Neto']];
-  [...mset].sort().reverse().forEach(m=>{const inc=monthIncome(m),gf=monthFixed(m),gv=monthVariable(m),cr=monthCredits(m),eg=gf+gv+cr;
+  months.forEach(m=>{const inc=monthIncome(m),gf=monthFixed(m),gv=monthVariable(m),cr=monthCredits(m),eg=gf+gv+cr;
     const[y,mo]=m.split('-');const nm=monthName(+y,+mo-1);
     resumen.push([nm.charAt(0).toUpperCase()+nm.slice(1),n(inc),n(gf),n(gv),n(cr),n(eg),n(inc-eg)]);});
+  if(only && resumen.length===1){const inc=monthIncome(only),gf=monthFixed(only),gv=monthVariable(only),cr=monthCredits(only),eg=gf+gv+cr;resumen.push([monLabel,n(inc),n(gf),n(gv),n(cr),n(eg),n(inc-eg)]);}
 
   const sheets=[
-    {name:'Resumen por mes',rows:resumen},
+    {name: only?'Resumen del mes':'Resumen por mes',rows:resumen},
     {name:'Ingresos',rows:income},
     {name:'Gastos fijos',rows:fixed},
     {name:'Gastos variables',rows:variable},
@@ -1220,8 +1249,8 @@ function exportXLSX(){
   try{
     const bytes=_buildXlsx(sheets);
     const blob=new Blob([bytes],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
-    const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='mi-flujo-personal-'+todayISO()+'.xlsx';a.click();
-    toast('Excel descargado 📊');
+    const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='mi-flujo-'+(only?only:'todos-'+todayISO())+'.xlsx';a.click();
+    toast('Excel descargado 📊 ('+monLabel+')');
   }catch(e){ toast('Error al generar Excel: '+e.message); }
 }
 function importData(e){const file=e.target.files[0];if(!file)return;const r=new FileReader();r.onload=()=>{try{const d=JSON.parse(r.result);S=Object.assign(defaultState(),d);save();applyTheme();renderAll();toast('Datos importados ✓');}catch(err){toast('Archivo inválido');}};r.readAsText(file);e.target.value='';}
@@ -1530,7 +1559,7 @@ function renderAll(){
   // set currency selector
   const sel=document.getElementById('cfgCurrency');if(sel)sel.value=`${S.currency.symbol}|${S.currency.locale}|${S.currency.code}`;
   renderIncome();renderExpenseTable('fixed','fixed');renderExpenseTable('variable','variable');
-  renderInvest();renderGoals();renderCredits();renderAlerts();renderDashboard();
+  renderInvest();renderGoals();renderCredits();renderAlerts();renderExportOptions();renderDashboard();
 }
 /* ---- Instalar como app (PWA) ---- */
 let deferredPrompt=null;
