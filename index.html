@@ -776,7 +776,7 @@ function renderExpenseTable(type,listName){
   ${list.map(x=>{const b=budgetOf(x),sp=spentOf(x),falta=b-sp;
   return `<tr><td><span class="mtag">${monthTag(x.date)}</span></td><td>${x.date||''}</td><td>${x.desc||''}</td><td><span class="tag">${x.category||'—'}</span></td>
   ${type==='fixed'?`<td>${x.dueDay?'día '+x.dueDay:'—'}</td>`:''}<td class="num">${money(b)}</td><td class="num neg">${money(sp)}</td><td class="num ${falta<0?'neg':'pos'}">${money(falta)}</td>${actionCell(type,x.id)}</tr>`;}).join('')}
-  </tbody><tfoot><tr><td class="lbl" colspan="${type==='fixed'?4:3}">📋 ${labelTotal} (${list.length} registro${list.length===1?'':'s'})</td>${extraEmpty}<td class="num">${money(totalBudget)}</td><td class="num neg">${money(totalSpent)}</td><td class="num ${totalSaldo<0?'neg':'pos'}">${money(totalSaldo)}</td><td></td></tr></tfoot></table>`;
+  </tbody><tfoot><tr><td class="lbl" colspan="${type==='fixed'?5:4}">📋 ${labelTotal} (${list.length} registro${list.length===1?'':'s'})</td><td class="num">${money(totalBudget)}</td><td class="num neg">${money(totalSpent)}</td><td class="num ${totalSaldo<0?'neg':'pos'}">${money(totalSaldo)}</td><td></td></tr></tfoot></table>`;
 }
 function renderInvest(){
   const t=investTotals();
