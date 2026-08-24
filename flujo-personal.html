@@ -248,6 +248,7 @@
 
       <div class="grid cards" style="margin-bottom:16px">
         <div class="card stat"><div class="label">💵 Ingresos del mes</div><div class="value pos" id="sIncome">$0</div><div class="hint" id="sIncomeHint"></div></div>
+        <div class="card stat"><div class="label">🎯 Presupuesto del mes</div><div class="value" id="sBudget">$0</div><div class="hint" id="sBudgetHint"></div></div>
         <div class="card stat"><div class="label">💸 Gastos del mes</div><div class="value neg" id="sExpense">$0</div><div class="hint" id="sExpenseHint"></div></div>
         <div class="card stat"><div class="label">⚖️ Flujo neto</div><div class="value" id="sNet">$0</div><div class="hint" id="sNetHint"></div></div>
         <div class="card stat"><div class="label">🏦 Patrimonio invertido</div><div class="value" id="sWorth">$0</div><div class="hint" id="sWorthHint"></div></div>
@@ -997,9 +998,14 @@ function copyPrevMonth(){
 function renderDashboard(){
   renderMonthPicker();
   const inc=monthIncome(currentMonth),exp=monthExpense(currentMonth),net=inc-exp;
+  const bud=monthBudget(currentMonth);
+  const fixedBud=inMonth(S.fixed,currentMonth).reduce((a,b)=>a+budgetOf(b),0);
+  const varBud=inMonth(S.variable,currentMonth).reduce((a,b)=>a+budgetOf(b),0);
   const[y,mo]=currentMonth.split('-');
   document.getElementById('monthLabel').textContent='Mostrando: '+monthName(+y,+mo-1);
   document.getElementById('sIncome').textContent=money(inc);
+  const bEl=document.getElementById('sBudget');if(bEl)bEl.textContent=money(bud);
+  const bHEl=document.getElementById('sBudgetHint');if(bHEl)bHEl.textContent='Fijos '+money(fixedBud)+' · Var '+money(varBud);
   document.getElementById('sExpense').textContent=money(exp);
   const nEl=document.getElementById('sNet');nEl.textContent=(net>=0?'+':'')+money(net);nEl.className='value '+(net>=0?'pos':'neg');
   document.getElementById('sNetHint').innerHTML=inc>0?`Tasa de ahorro: <b>${(net/inc*100).toFixed(0)}%</b>`:'';
