@@ -73,6 +73,8 @@
   .grid{display:grid;gap:16px}
   .cards{grid-template-columns:repeat(auto-fit,minmax(220px,1fr))}
   .card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:20px}
+  .budget-banner{background:linear-gradient(135deg,rgba(108,140,255,.08),rgba(139,92,246,.08));border:1px solid rgba(108,140,255,.3);border-radius:var(--radius);padding:20px;margin-bottom:18px}
+  [data-theme="light"] .budget-banner{background:linear-gradient(135deg,rgba(108,140,255,.07),rgba(139,92,246,.07));border:1px solid rgba(108,140,255,.25)}
   .stat .label{color:var(--muted);font-size:.82rem;font-weight:600;text-transform:uppercase;letter-spacing:.4px;display:flex;align-items:center;gap:7px}
   .stat .value{font-size:1.75rem;font-weight:800;margin-top:8px}
   .stat .hint{font-size:.8rem;color:var(--txt-dim);margin-top:4px}
@@ -246,19 +248,45 @@
         </div>
       </div>
 
-      <div class="grid cards" style="margin-bottom:16px">
-        <div class="card stat"><div class="label">💵 Ingresos del mes</div><div class="value pos" id="sIncome">$0</div><div class="hint" id="sIncomeHint"></div></div>
-        <div class="card stat"><div class="label">🎯 Presupuesto del mes</div><div class="value" id="sBudget">$0</div><div class="hint" id="sBudgetHint"></div></div>
-        <div class="card stat"><div class="label">💸 Gastos del mes</div><div class="value neg" id="sExpense">$0</div><div class="hint" id="sExpenseHint"></div></div>
-        <div class="card stat"><div class="label">⚖️ Flujo neto</div><div class="value" id="sNet">$0</div><div class="hint" id="sNetHint"></div></div>
-        <div class="card stat"><div class="label">🏦 Patrimonio invertido</div><div class="value" id="sWorth">$0</div><div class="hint" id="sWorthHint"></div></div>
-        <div class="card stat"><div class="label">💳 Deuda pendiente</div><div class="value neg" id="sDebt">$0</div><div class="hint" id="sDebtHint"></div></div>
+      <!-- ===== BANNER DE PRESUPUESTO (PLANIFICADO) ===== -->
+      <div class="budget-banner">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:8px">
+          <div class="section-title" style="margin:0"><span class="ic">🎯</span> Banner de Presupuesto (Planificado)</div>
+          <div class="pill" style="background:rgba(108,140,255,.2);color:var(--accent);font-weight:700">Proyección del mes</div>
+        </div>
+        <div class="grid cards" style="margin-bottom:16px">
+          <div class="card stat" style="background:var(--card-2)">
+            <div class="label">💵 Ingresos presupuestados</div>
+            <div class="value pos" id="sbIncome">$0</div>
+            <div class="hint" id="sbIncomeHint">0 registros</div>
+          </div>
+          <div class="card stat" style="background:var(--card-2)">
+            <div class="label">🎯 Gastos presupuestados</div>
+            <div class="value" id="sbExpense">$0</div>
+            <div class="hint" id="sbExpenseHint">Fijos + Variables</div>
+          </div>
+          <div class="card stat" style="background:var(--card-2)">
+            <div class="label">⚖️ Flujo neto presupuestado</div>
+            <div class="value" id="sbNet">$0</div>
+            <div class="hint" id="sbNetHint">Ahorro proyectado</div>
+          </div>
+          <div class="card stat" style="background:var(--card-2)">
+            <div class="label">💳 Deuda pendiente</div>
+            <div class="value neg" id="sbDebt">$0</div>
+            <div class="hint" id="sbDebtHint">0 cuotas restantes</div>
+          </div>
+        </div>
+        <div id="budgetVsSpent"></div>
       </div>
 
-      <div class="card" style="margin-bottom:16px">
-        <div class="section-title"><span class="ic">🎯</span> Presupuesto vs Egreso del mes</div>
-        <div class="sub" style="color:var(--muted);margin:4px 0 12px">Gastos fijos y variables del mes seleccionado.</div>
-        <div id="budgetVsSpent"></div>
+      <!-- ===== EJECUTADO / REAL ===== -->
+      <div class="section-title" style="margin:20px 0 10px"><span class="ic">⚡</span> Ejecutado del Mes (Real)</div>
+      <div class="grid cards" style="margin-bottom:16px">
+        <div class="card stat"><div class="label">💵 Ingresos reales</div><div class="value pos" id="sIncome">$0</div><div class="hint" id="sIncomeHint"></div></div>
+        <div class="card stat"><div class="label">💸 Gastos reales</div><div class="value neg" id="sExpense">$0</div><div class="hint" id="sExpenseHint"></div></div>
+        <div class="card stat"><div class="label">⚖️ Flujo neto real</div><div class="value" id="sNet">$0</div><div class="hint" id="sNetHint"></div></div>
+        <div class="card stat"><div class="label">🏦 Patrimonio invertido</div><div class="value" id="sWorth">$0</div><div class="hint" id="sWorthHint"></div></div>
+        <div class="card stat"><div class="label">💳 Deuda pendiente</div><div class="value neg" id="sDebt">$0</div><div class="hint" id="sDebtHint"></div></div>
       </div>
 
       <div class="row" style="margin-bottom:16px">
@@ -998,23 +1026,46 @@ function copyPrevMonth(){
 function renderDashboard(){
   renderMonthPicker();
   const inc=monthIncome(currentMonth),exp=monthExpense(currentMonth),net=inc-exp;
-  const bud=monthBudget(currentMonth);
-  const fixedBud=inMonth(S.fixed,currentMonth).reduce((a,b)=>a+budgetOf(b),0);
-  const varBud=inMonth(S.variable,currentMonth).reduce((a,b)=>a+budgetOf(b),0);
   const[y,mo]=currentMonth.split('-');
   document.getElementById('monthLabel').textContent='Mostrando: '+monthName(+y,+mo-1);
+
+  // --- Datos de Presupuesto (Banner) ---
+  const fixedBud=inMonth(S.fixed,currentMonth).reduce((a,b)=>a+budgetOf(b),0);
+  const varBud=inMonth(S.variable,currentMonth).reduce((a,b)=>a+budgetOf(b),0);
+  const credBud=S.credits.filter(c=>creditActiveIn(c,currentMonth)).reduce((a,c)=>a+(+c.payment||0),0);
+  const totalBudExp=fixedBud+varBud+credBud;
+  const netBud=inc-totalBudExp;
+  const ct=creditTotals();
+
+  const sbIncEl=document.getElementById('sbIncome');if(sbIncEl)sbIncEl.textContent=money(inc);
+  const sbIncHEl=document.getElementById('sbIncomeHint');if(sbIncHEl)sbIncHEl.textContent=inMonth(S.income,currentMonth).length+' registro(s)';
+
+  const sbExpEl=document.getElementById('sbExpense');if(sbExpEl)sbExpEl.textContent=money(totalBudExp);
+  const sbExpHEl=document.getElementById('sbExpenseHint');if(sbExpHEl)sbExpHEl.textContent='Fijos '+money(fixedBud)+' · Var '+money(varBud)+(credBud>0?' · Créd '+money(credBud):'');
+
+  const sbNetEl=document.getElementById('sbNet');
+  if(sbNetEl){
+    sbNetEl.textContent=(netBud>=0?'+':'')+money(netBud);
+    sbNetEl.className='value '+(netBud>=0?'pos':'neg');
+  }
+  const sbNetHEl=document.getElementById('sbNetHint');
+  if(sbNetHEl){
+    sbNetHEl.innerHTML=inc>0?`Ahorro proyectado: <b>${(netBud/inc*100).toFixed(0)}%</b>`:'Sin ingresos proyectados';
+  }
+
+  const sbDebtEl=document.getElementById('sbDebt');if(sbDebtEl)sbDebtEl.textContent=money(ct.remaining);
+  const sbDebtHEl=document.getElementById('sbDebtHint');if(sbDebtHEl)sbDebtHEl.textContent=ct.cuotasLeft>0?ct.cuotasLeft+' cuotas · '+money(ct.monthly)+'/mes':'Sin deudas 🎉';
+
+  // --- Datos Ejecutados / Reales ---
   document.getElementById('sIncome').textContent=money(inc);
-  const bEl=document.getElementById('sBudget');if(bEl)bEl.textContent=money(bud);
-  const bHEl=document.getElementById('sBudgetHint');if(bHEl)bHEl.textContent='Fijos '+money(fixedBud)+' · Var '+money(varBud);
   document.getElementById('sExpense').textContent=money(exp);
   const nEl=document.getElementById('sNet');nEl.textContent=(net>=0?'+':'')+money(net);nEl.className='value '+(net>=0?'pos':'neg');
-  document.getElementById('sNetHint').innerHTML=inc>0?`Tasa de ahorro: <b>${(net/inc*100).toFixed(0)}%</b>`:'';
+  document.getElementById('sNetHint').innerHTML=inc>0?`Tasa de ahorro real: <b>${(net/inc*100).toFixed(0)}%</b>`:'';
   document.getElementById('sIncomeHint').textContent=inMonth(S.income,currentMonth).length+' registros';
   document.getElementById('sExpenseHint').textContent='Fijos '+money(monthFixed(currentMonth))+' · Var '+money(monthVariable(currentMonth))+' · Créd '+money(monthCredits(currentMonth));
   const t=investTotals();
   document.getElementById('sWorth').textContent=money(t.bal);
   document.getElementById('sWorthHint').innerHTML=t.gain>=0?`<span class="pos">▲ ${money(t.gain)}</span> de ganancia`:`<span class="neg">▼ ${money(Math.abs(t.gain))}</span> de pérdida`;
-  const ct=creditTotals();
   document.getElementById('sDebt').textContent=money(ct.remaining);
   document.getElementById('sDebtHint').textContent=ct.cuotasLeft>0?ct.cuotasLeft+' cuotas · '+money(ct.monthly)+'/mes':'Sin deudas 🎉';
 
