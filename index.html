@@ -688,6 +688,19 @@ document.getElementById('modalSave').onclick=()=>{
   save();closeModal();renderAll();toast('Guardado ✓');
 };
 function del(type,id){if(!confirm('¿Eliminar este registro?'))return;S[LIST_MAP[type]]=S[LIST_MAP[type]].filter(x=>x.id!==id);save();renderAll();toast('Eliminado');}
+function markExpensePaid(type,id){
+  const listName=LIST_MAP[type];if(!listName||!S[listName])return;
+  const item=S[listName].find(x=>x.id===id);if(!item)return;
+  const b=budgetOf(item),sp=spentOf(item);
+  if(b<=0){toast('Este registro no tiene un presupuesto definido');return;}
+  if(sp===b){
+    item.spent=0;save();renderAll();
+    toast('Pago de "'+(item.desc||'Gasto')+'" deshecho (Egreso en '+money(0)+')');
+  }else{
+    item.spent=b;save();renderAll();
+    toast('✓ "'+(item.desc||'Gasto')+'" marcado como pagado ('+money(b)+')');
+  }
+}
 
 /* ============ Cálculos ============ */
 function inMonth(list,m){return list.filter(x=>x.date&&ym(x.date)===m);}
@@ -803,8 +816,14 @@ function renderExpenseTable(type,listName){
   const labelTotal=showAllRecords?'Total general':'Total del mes';
   el.innerHTML=bar+`<table><thead><tr><th>Mes</th><th>Fecha</th><th>Descripción</th><th>Categoría</th>${extra}<th class="num">Presupuesto</th><th class="num">Egreso</th><th class="num">Saldo</th><th></th></tr></thead><tbody>
   ${list.map(x=>{const b=budgetOf(x),sp=spentOf(x),falta=b-sp;
+  const isPaid=(b>0 && sp===b);
   return `<tr><td><span class="mtag">${monthTag(x.date)}</span></td><td>${x.date||''}</td><td>${x.desc||''}</td><td><span class="tag">${x.category||'—'}</span></td>
-  ${type==='fixed'?`<td>${x.dueDay?'día '+x.dueDay:'—'}</td>`:''}<td class="num">${money(b)}</td><td class="num neg">${money(sp)}</td><td class="num ${falta<0?'neg':'pos'}">${money(falta)}</td>${actionCell(type,x.id)}</tr>`;}).join('')}
+  ${type==='fixed'?`<td>${x.dueDay?'día '+x.dueDay:'—'}</td>`:''}<td class="num">${money(b)}</td><td class="num neg">${money(sp)}</td><td class="num ${falta<0?'neg':'pos'}">${money(falta)}</td>
+  <td class="num" style="white-space:nowrap">
+    <button class="btn sm ${isPaid?'':'primary'}" style="padding:3px 9px;font-size:.78rem;margin-right:4px;border-radius:8px" onclick="markExpensePaid('${type}','${x.id}')" title="${isPaid?'Pagado (clic para deshacer y volver a $0)':'Marcar como pagado (Egreso = Presupuesto y Saldo = $0)'}">${isPaid?'✅ Pagado':'✓ Pagar'}</button>
+    <button class="icon-btn" onclick="openForm('${type}','${x.id}')" title="Editar">✏️</button>
+    <button class="icon-btn" onclick="del('${type}','${x.id}')" title="Eliminar">🗑️</button>
+  </td></tr>`;}).join('')}
   </tbody><tfoot><tr><td class="lbl" colspan="${type==='fixed'?5:4}">📋 ${labelTotal} (${list.length} registro${list.length===1?'':'s'})</td><td class="num">${money(totalBudget)}</td><td class="num neg">${money(totalSpent)}</td><td class="num ${totalSaldo<0?'neg':'pos'}">${money(totalSaldo)}</td><td></td></tr></tfoot></table>`;
 }
 function renderInvest(){
