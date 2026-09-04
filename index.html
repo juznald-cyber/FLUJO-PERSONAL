@@ -603,16 +603,16 @@ const FORMS={
     {k:'date',l:'Fecha',t:'date',req:1,def:todayISO()}
   ]},
   fixed:{title:'Gasto fijo',fields:[
-    {k:'desc',l:'Descripción',t:'text',req:1,ph:'Renta, internet, Netflix...'},
-    {k:'category',l:'Categoría',t:'select',opts:['Vivienda','Servicios','Suscripciones','Créditos','Seguros','Transporte','Educación','Salud','Otro']},
+    {k:'desc',l:'Descripción',t:'text',req:1,ph:'Renta, diezmo, ofrenda, internet...'},
+    {k:'category',l:'Categoría',t:'select',opts:['Vivienda','Servicios','Suscripciones','Créditos','Seguros','Transporte','Educación','Salud','Diezmo / Ofrenda','Donaciones','Otro']},
     {k:'budget',l:'Presupuesto',t:'number',req:1},
     {k:'spent',l:'Egreso hasta ahora',t:'number',def:0},
     {k:'dueDay',l:'Día de pago (1-31)',t:'number',ph:'ej. 5'},
     {k:'date',l:'Mes de registro',t:'date',req:1,def:todayISO()}
   ]},
   variable:{title:'Gasto variable',fields:[
-    {k:'desc',l:'Descripción',t:'text',req:1,ph:'Súper, gasolina, cena...'},
-    {k:'category',l:'Categoría',t:'select',opts:['Alimentación','Transporte','Ocio','Ropa','Salud','Hogar','Regalos','Viajes','Otro']},
+    {k:'desc',l:'Descripción',t:'text',req:1,ph:'Súper, ofrenda, diezmo, gasolina...'},
+    {k:'category',l:'Categoría',t:'select',opts:['Alimentación','Transporte','Ocio','Ropa','Salud','Hogar','Diezmo / Ofrenda','Donaciones','Regalos','Viajes','Otro']},
     {k:'budget',l:'Presupuesto',t:'number',req:1},
     {k:'spent',l:'Egreso hasta ahora',t:'number',def:0},
     {k:'date',l:'Fecha',t:'date',req:1,def:todayISO()}
@@ -651,13 +651,90 @@ const FORMS={
 const LIST_MAP={income:'income',fixed:'fixed',variable:'variable',invest:'invest',goal:'goals',reminder:'reminders',credit:'credits'};
 let editing=null;
 
+function getIncomeCalcOptions(){
+  const incList=inMonth(S.income,currentMonth);
+  const list=incList.length?incList:S.income;
+  const total=list.reduce((a,b)=>a+(+b.amount||0),0);
+  let html=`<option value="${total}">Total ingresos del mes (${money(total)})</option>`;
+  list.forEach(x=>{
+    html+=`<option value="${+x.amount||0}">${x.desc||'Ingreso'} (${money(x.amount)})${x.date?' · '+x.date:''}</option>`;
+  });
+  if(!list.length){
+    html=`<option value="0">No hay ingresos registrados todavía</option>`;
+  }
+  return html;
+}
+
+function setCalcPct(pct,defaultDesc){
+  const el=document.getElementById('calcIncomePct');
+  if(el){ el.value=pct; applyIncomePct(); }
+  if(defaultDesc){
+    const descEl=document.querySelector('#modalForm input[name="desc"]');
+    if(descEl && (!descEl.value || descEl.value==='Diezmo' || descEl.value==='Ofrenda')){
+      descEl.value=defaultDesc;
+    }
+    const catEl=document.querySelector('#modalForm select[name="category"]');
+    if(catEl && Array.from(catEl.options).some(o=>o.value==='Diezmo / Ofrenda')){
+      catEl.value='Diezmo / Ofrenda';
+    }
+  }
+}
+
+function applyIncomePct(){
+  const sel=document.getElementById('calcIncomeSelect');
+  const pctEl=document.getElementById('calcIncomePct');
+  const resEl=document.getElementById('calcPctResult');
+  if(!sel || !pctEl) return;
+  const base=Number(sel.value)||0;
+  const pct=Number(pctEl.value)||0;
+  if(base>0 && pct>0){
+    const res=Math.round(base*(pct/100)*100)/100;
+    const bInput=document.querySelector('#modalForm input[name="budget"]');
+    if(bInput) bInput.value=res;
+    if(resEl) resEl.textContent=`${pct}% de ${money(base)} = ${money(res)}`;
+  } else if(resEl){
+    resEl.textContent='';
+  }
+}
+
 function openForm(type,id){
   editing={type,id};
   const cfg=FORMS[type];
   const item=id?S[LIST_MAP[type]].find(x=>x.id===id):null;
   document.getElementById('modalTitle').textContent=(id?'Editar ':'Nuevo ')+cfg.title.toLowerCase();
   const f=document.getElementById('modalForm');
-  f.innerHTML=cfg.fields.map(fd=>{
+
+  let extraHTML='';
+  if(type==='fixed'||type==='variable'){
+    extraHTML=`
+    <div style="background:var(--card-2);border:1px dashed var(--accent);padding:11px 13px;margin:2px 0 14px;border-radius:11px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+        <label style="margin:0;font-weight:700;font-size:.82rem;color:var(--accent)">🧮 Calcular % de un ingreso (Diezmo / Ofrenda)</label>
+      </div>
+      <div class="field-row" style="margin-bottom:6px;gap:8px">
+        <div style="flex:2">
+          <label style="font-size:.73rem;color:var(--txt-dim)">Selecciona el ingreso:</label>
+          <select id="calcIncomeSelect" onchange="applyIncomePct()" style="font-size:.84rem;padding:6px 8px;margin-top:2px">
+            ${getIncomeCalcOptions()}
+          </select>
+        </div>
+        <div style="flex:1">
+          <label style="font-size:.73rem;color:var(--txt-dim)">Porcentaje (%):</label>
+          <input type="number" id="calcIncomePct" step="0.1" placeholder="ej. 10" oninput="applyIncomePct()" style="font-size:.84rem;padding:6px 8px;margin-top:2px">
+        </div>
+      </div>
+      <div style="display:flex;gap:5px;flex-wrap:wrap;align-items:center;margin-top:6px">
+        <span style="font-size:.73rem;color:var(--muted)">Atajos:</span>
+        <button type="button" class="btn sm" style="padding:2px 7px;font-size:.73rem" onclick="setCalcPct(10,'Diezmo')">10% (Diezmo)</button>
+        <button type="button" class="btn sm" style="padding:2px 7px;font-size:.73rem" onclick="setCalcPct(5,'Ofrenda')">5% (Ofrenda)</button>
+        <button type="button" class="btn sm" style="padding:2px 7px;font-size:.73rem" onclick="setCalcPct(2.5)">2.5%</button>
+        <button type="button" class="btn sm" style="padding:2px 7px;font-size:.73rem" onclick="setCalcPct(1)">1%</button>
+        <div id="calcPctResult" style="margin-left:auto;font-size:.8rem;font-weight:700;color:var(--green)"></div>
+      </div>
+    </div>`;
+  }
+
+  f.innerHTML=extraHTML+cfg.fields.map(fd=>{
     let val=item?(item[fd.k]??''):(fd.def??'');
     // Registros antiguos con 'amount': precargar Estipulado/Gastado con ese valor
     if(item && (fd.k==='budget'||fd.k==='spent') && (item[fd.k]==null||item[fd.k]==='') && item.amount!=null) val=item.amount;
