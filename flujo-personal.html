@@ -688,7 +688,7 @@ function applyIncomePct(){
   const base=Number(sel.value)||0;
   const pct=Number(pctEl.value)||0;
   if(base>0 && pct>0){
-    const res=Math.round(base*(pct/100)*100)/100;
+    const res=Math.round(base*(pct/100));
     const bInput=document.querySelector('#modalForm input[name="budget"]');
     if(bInput) bInput.value=res;
     if(resEl) resEl.textContent=`${pct}% de ${money(base)} = ${money(res)}`;
@@ -707,23 +707,23 @@ function openForm(type,id){
   let extraHTML='';
   if(type==='fixed'||type==='variable'){
     extraHTML=`
-    <div style="background:var(--card-2);border:1px dashed var(--accent);padding:11px 13px;margin:2px 0 14px;border-radius:11px">
+    <div style="background:var(--card-2);border:1px dashed var(--accent);padding:11px 13px;margin:2px 0 14px;border-radius:11px;overflow:hidden;box-sizing:border-box">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
         <label style="margin:0;font-weight:700;font-size:.82rem;color:var(--accent)">🧮 Calcular % de un ingreso (Diezmo / Ofrenda)</label>
       </div>
-      <div class="field-row" style="margin-bottom:6px;gap:8px">
-        <div style="flex:2">
-          <label style="font-size:.73rem;color:var(--txt-dim)">Selecciona el ingreso:</label>
-          <select id="calcIncomeSelect" onchange="applyIncomePct()" style="font-size:.84rem;padding:6px 8px;margin-top:2px">
+      <div style="display:flex;gap:8px;margin-bottom:6px;width:100%;box-sizing:border-box">
+        <div style="flex:2;min-width:0">
+          <label style="display:block;font-size:.73rem;color:var(--txt-dim);margin-bottom:3px">Selecciona el ingreso:</label>
+          <select id="calcIncomeSelect" onchange="applyIncomePct()" style="width:100%;min-width:0;box-sizing:border-box;font-size:.84rem;padding:7px 8px;background:var(--bg-2);color:var(--txt);border:1px solid var(--line);border-radius:8px">
             ${getIncomeCalcOptions()}
           </select>
         </div>
-        <div style="flex:1">
-          <label style="font-size:.73rem;color:var(--txt-dim)">Porcentaje (%):</label>
-          <input type="number" id="calcIncomePct" step="0.1" placeholder="ej. 10" oninput="applyIncomePct()" style="font-size:.84rem;padding:6px 8px;margin-top:2px">
+        <div style="flex:1;min-width:0">
+          <label style="display:block;font-size:.73rem;color:var(--txt-dim);margin-bottom:3px">Porcentaje (%):</label>
+          <input type="number" id="calcIncomePct" step="0.1" placeholder="ej. 10" oninput="applyIncomePct()" style="width:100%;min-width:0;box-sizing:border-box;font-size:.84rem;padding:7px 8px;background:var(--bg-2);color:var(--txt);border:1px solid var(--line);border-radius:8px">
         </div>
       </div>
-      <div style="display:flex;gap:5px;flex-wrap:wrap;align-items:center;margin-top:6px">
+      <div style="display:flex;gap:5px;flex-wrap:wrap;align-items:center;margin-top:8px">
         <span style="font-size:.73rem;color:var(--muted)">Atajos:</span>
         <button type="button" class="btn sm" style="padding:2px 7px;font-size:.73rem" onclick="setCalcPct(10,'Diezmo')">10% (Diezmo)</button>
         <button type="button" class="btn sm" style="padding:2px 7px;font-size:.73rem" onclick="setCalcPct(5,'Ofrenda')">5% (Ofrenda)</button>
