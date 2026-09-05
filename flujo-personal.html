@@ -1255,6 +1255,18 @@ function applyIncomePct(){
   }
 }
 
+function setFormSpentPaid(){
+  const bInput=document.querySelector('#modalForm input[name="budget"]');
+  const sInput=document.querySelector('#modalForm input[name="spent"]');
+  if(bInput && sInput){
+    sInput.value = bInput.value || 0;
+  }
+}
+function setFormSpentZero(){
+  const sInput=document.querySelector('#modalForm input[name="spent"]');
+  if(sInput) sInput.value = 0;
+}
+
 function openForm(type,id){
   editing={type,id};
   const cfg=FORMS[type];
@@ -1302,7 +1314,16 @@ function openForm(type,id){
     if(fd.t==='checkbox'){
       return `<div class="field"><label style="display:flex;gap:8px;align-items:center;cursor:pointer"><input type="checkbox" name="${fd.k}" style="width:auto" ${item&&item[fd.k]?'checked':''}> ${fd.l}</label></div>`;
     }
-    return `<div class="field"><label>${fd.l}${fd.req?' *':''}</label><input type="${fd.t}" name="${fd.k}" value="${val}" ${fd.ph?`placeholder="${fd.ph}"`:''} ${fd.req?'required':''} ${fd.t==='number'?'step="0.01" inputmode="decimal"':''}></div>`;
+    const isSpentField = (fd.k==='spent' && (type==='fixed'||type==='variable'));
+    return `<div class="field"><label>${fd.l}${fd.req?' *':''}</label><input type="${fd.t}" name="${fd.k}" value="${val}" ${fd.ph?`placeholder="${fd.ph}"`:''} ${fd.req?'required':''} ${fd.t==='number'?'step="0.01" inputmode="decimal"':''}>
+    ${isSpentField ? `
+      <div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap">
+        <button type="button" class="btn sm" style="padding:3px 9px;font-size:.74rem" onclick="setFormSpentPaid()">✅ Copiar presupuesto (Ya pagado)</button>
+        <button type="button" class="btn sm" style="padding:3px 9px;font-size:.74rem" onclick="setFormSpentZero()">⏳ $0 (Pendiente / No pagado)</button>
+      </div>
+      <div style="font-size:.72rem;color:var(--muted);margin-top:4px">💡 Si dejas Egreso en $0 se cuenta como presupuesto planificado. Al pagarlo sumará a tus Gastos Reales.</div>
+    ` : ''}
+    </div>`;
   }).join('');
   document.getElementById('modalBg').classList.add('open');
 }
