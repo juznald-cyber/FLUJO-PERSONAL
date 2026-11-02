@@ -1162,7 +1162,7 @@ const FORMS={
   ]},
   fixed:{title:'Gasto fijo',fields:[
     {k:'desc',l:'Descripción',t:'text',req:1,ph:'Renta, diezmo, ofrenda, internet...'},
-    {k:'category',l:'Categoría',t:'select',opts:['Vivienda','Servicios','Suscripciones','Créditos','Seguros','Transporte','Educación','Salud','Diezmo / Ofrenda','Donaciones','Otro']},
+    {k:'category',l:'Categoría',t:'select',opts:['Vivienda','Servicios','Suscripciones','Créditos','Seguros','Transporte','Educación','Salud','Ahorro','Diezmo / Ofrenda','Donaciones','Otro']},
     {k:'budget',l:'Presupuesto',t:'number',req:1},
     {k:'spent',l:'Egreso hasta ahora',t:'number',def:0},
     {k:'dueDay',l:'Día de pago (1-31)',t:'number',ph:'ej. 5'},
@@ -1170,7 +1170,7 @@ const FORMS={
   ]},
   variable:{title:'Gasto variable',fields:[
     {k:'desc',l:'Descripción',t:'text',req:1,ph:'Súper, ofrenda, diezmo, gasolina...'},
-    {k:'category',l:'Categoría',t:'select',opts:['Alimentación','Transporte','Ocio','Ropa','Salud','Hogar','Diezmo / Ofrenda','Donaciones','Regalos','Viajes','Otro']},
+    {k:'category',l:'Categoría',t:'select',opts:['Alimentación','Transporte','Ocio','Ropa','Salud','Hogar','Ahorro','Diezmo / Ofrenda','Donaciones','Regalos','Viajes','Otro']},
     {k:'budget',l:'Presupuesto',t:'number',req:1},
     {k:'spent',l:'Egreso hasta ahora',t:'number',def:0},
     {k:'date',l:'Fecha',t:'date',req:1,def:todayISO()}
@@ -1272,6 +1272,7 @@ function openForm(type,id){
   const cfg=FORMS[type];
   const item=id?S[LIST_MAP[type]].find(x=>x.id===id):null;
   document.getElementById('modalTitle').textContent=(id?'Editar ':'Nuevo ')+cfg.title.toLowerCase();
+  const saveBtn=document.getElementById('modalSave');if(saveBtn)saveBtn.textContent='Guardar';
   const f=document.getElementById('modalForm');
 
   let extraHTML='';
@@ -1327,10 +1328,51 @@ function openForm(type,id){
   }).join('');
   document.getElementById('modalBg').classList.add('open');
 }
-function closeModal(){document.getElementById('modalBg').classList.remove('open');editing=null;}
+function closeModal(){
+  document.getElementById('modalBg').classList.remove('open');
+  editing=null;
+  const saveBtn=document.getElementById('modalSave');if(saveBtn)saveBtn.textContent='Guardar';
+}
 document.getElementById('modalBg').onclick=e=>{if(e.target.id==='modalBg')closeModal();};
 document.getElementById('modalSave').onclick=()=>{
-  const {type,id}=editing;const cfg=FORMS[type];const f=document.getElementById('modalForm');
+  const {type,id}=editing;
+  if(type==='goal_contrib'){
+    const f=document.getElementById('modalForm');
+    const amt=Number(f.elements['amount'].value);
+    const date=f.elements['date'].value || todayISO();
+    if(!amt || amt<=0){ toast('Ingresa un monto válido mayor a 0'); return; }
+    const g=S.goals.find(x=>x.id===id);
+    if(!g){ toast('Meta no encontrada'); return; }
+
+    // 1. Sumar a la meta de ahorro
+    g.saved = (+g.saved||0) + amt;
+
+    // 2. Registrar automáticamente como gasto variable ejecutado en el flujo
+    const expObj = {
+      id: uid(),
+      desc: 'Aporte ahorro: ' + (g.name || 'Meta'),
+      category: 'Ahorro',
+      budget: amt,
+      spent: amt,
+      date: date,
+      goalId: g.id
+    };
+    S.variable.push(expObj);
+
+    // Cambiar al mes del aporte para que el usuario vea de inmediato la rebaja en el banner de presupuesto y ejecutado
+    const m = ym(date);
+    if(m) currentMonth = m;
+
+    save();
+    closeModal();
+    renderAll();
+    const [y,mo]=date.split('-');
+    toast(`✓ Aporte de ${money(amt)} registrado y descontado del mes (${monthName(+y,+mo-1)}) 🎯`);
+    return;
+  }
+  const cfg=FORMS[type];const f=document.getElementById('modalForm');
+  const prevItem = (type==='variable'&&id) ? S.variable.find(x=>x.id===id) : null;
+  const prevAmt = prevItem ? (+prevItem.spent || +prevItem.budget || 0) : 0;
   const obj=id?{...S[LIST_MAP[type]].find(x=>x.id===id)}:{id:uid()};
   for(const fd of cfg.fields){
     const el=f.elements[fd.k];
@@ -1339,11 +1381,31 @@ document.getElementById('modalSave').onclick=()=>{
     else obj[fd.k]=el.value;
     if(fd.req&&(obj[fd.k]===''||obj[fd.k]===undefined)){toast('Completa: '+fd.l);return;}
   }
+  if(type==='variable' && obj.goalId){
+    const g = S.goals.find(x=>x.id===obj.goalId);
+    if(g){
+      const newAmt = +obj.spent || +obj.budget || 0;
+      g.saved = Math.max(0, (+g.saved||0) - prevAmt + newAmt);
+    }
+  }
   const arr=S[LIST_MAP[type]];
   if(id){const i=arr.findIndex(x=>x.id===id);arr[i]=obj;}else arr.push(obj);
   save();closeModal();renderAll();toast('Guardado ✓');
 };
-function del(type,id){if(!confirm('¿Eliminar este registro?'))return;S[LIST_MAP[type]]=S[LIST_MAP[type]].filter(x=>x.id!==id);save();renderAll();toast('Eliminado');}
+function del(type,id){
+  if(!confirm('¿Eliminar este registro?'))return;
+  if(type==='variable'){
+    const it=S.variable.find(x=>x.id===id);
+    if(it && it.goalId){
+      const g=S.goals.find(x=>x.id===it.goalId);
+      if(g){
+        g.saved=Math.max(0, (+g.saved||0) - (+it.spent||+it.budget||0));
+      }
+    }
+  }
+  S[LIST_MAP[type]]=S[LIST_MAP[type]].filter(x=>x.id!==id);
+  save();renderAll();toast('Eliminado');
+}
 function markExpensePaid(type,id){
   const listName=LIST_MAP[type];if(!listName||!S[listName])return;
   const item=S[listName].find(x=>x.id===id);if(!item)return;
@@ -1512,6 +1574,9 @@ function renderGoals(){
     if(g.deadline){const dl=daysBetween(todayISO(),g.deadline);
       if(remain>0&&dl>0){const need=remain/Math.max(1,Math.ceil(dl/30));deadlineTxt=`Para llegar antes de ${g.deadline} necesitas ~${money(need)}/mes.`;}}
     const cls=pct>=100?'green':pct>=50?'':'amber';
+    const goalContribs=(S.variable||[]).filter(x=>x.goalId===g.id).sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+    const lastContrib=goalContribs[0];
+    const lastTxt=lastContrib?`<div style="margin-top:6px;font-size:.78rem;color:var(--txt-dim)">Último aporte: <b>${money(lastContrib.spent||lastContrib.budget)}</b> (${lastContrib.date}) · <span style="color:var(--green)">registrado en flujo ✓</span></div>`:'';
     return `<div class="card">
       <div style="display:flex;justify-content:space-between;align-items:start">
         <div class="section-title" style="margin:0">🎯 ${g.name||'Meta'}</div>
@@ -1522,11 +1587,40 @@ function renderGoals(){
       <div style="display:flex;justify-content:space-between;margin-top:6px;font-size:.8rem;color:var(--muted)"><span>${pct.toFixed(0)}%</span><span>Faltan ${money(remain)}</span></div>
       <div style="margin-top:10px;font-size:.83rem;color:var(--txt-dim)">${proj}</div>
       ${deadlineTxt?`<div style="margin-top:6px;font-size:.83rem;color:var(--amber)">⏰ ${deadlineTxt}</div>`:''}
-      <button class="btn sm" style="margin-top:12px" onclick="addToGoal('${g.id}')">＋ Registrar aporte</button>
+      ${lastTxt}
+      <button class="btn sm primary" style="margin-top:12px" onclick="addToGoal('${g.id}')">＋ Registrar aporte</button>
     </div>`;
   }).join('');
 }
-function addToGoal(id){const g=S.goals.find(x=>x.id===id);const v=prompt('¿Cuánto aportas a "'+g.name+'"?');if(v===null)return;const n=Number(v);if(isNaN(n)){toast('Monto inválido');return;}g.saved=(+g.saved||0)+n;save();renderAll();toast('Aporte registrado 🎯');}
+function addToGoal(id){
+  const g=S.goals.find(x=>x.id===id);
+  if(!g)return;
+  editing={type:'goal_contrib',id};
+  document.getElementById('modalTitle').textContent='🎯 Registrar aporte a "'+(g.name||'Meta')+'"';
+  const saveBtn=document.getElementById('modalSave');if(saveBtn)saveBtn.textContent='Guardar aporte';
+  const f=document.getElementById('modalForm');
+  f.innerHTML=`
+    <div style="background:var(--card-2);border:1px solid var(--line);padding:12px 14px;border-radius:12px;margin-bottom:14px">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px">
+        <span style="font-size:.85rem;color:var(--txt-dim)">Meta: <b>${g.name||'Meta'}</b></span>
+        <span style="font-size:.85rem;color:var(--accent);font-weight:700">Objetivo: ${money(g.target||0)}</span>
+      </div>
+      <div style="font-size:.92rem;margin-top:6px">Ahorrado actual: <b>${money(g.saved||0)}</b></div>
+    </div>
+    <div class="field">
+      <label>Monto del aporte *</label>
+      <input type="number" name="amount" step="0.01" inputmode="decimal" placeholder="ej. 50000" required autofocus onkeydown="if(event.key==='Enter')document.getElementById('modalSave').click()">
+    </div>
+    <div class="field">
+      <label>Fecha del aporte *</label>
+      <input type="date" name="date" value="${todayISO()}" required onkeydown="if(event.key==='Enter')document.getElementById('modalSave').click()">
+    </div>
+    <div style="font-size:.78rem;color:var(--txt-dim);background:rgba(10,132,255,.08);border:1px solid rgba(10,132,255,.2);padding:10px 12px;border-radius:10px;margin-top:8px;line-height:1.45">
+      💡 <b>Registro automático en el flujo:</b> Este aporte se sumará a tu meta y se creará simultáneamente como un gasto en <b>Gastos Variables</b> (categoría <i>Ahorro</i>) en la fecha elegida. Rebajará de inmediato tu <b>Banner de Presupuesto</b> y tu <b>Flujo Neto Real (Ejecutado)</b>.
+    </div>
+  `;
+  document.getElementById('modalBg').classList.add('open');
+}
 
 /* ============ Créditos ============ */
 function addMonths(dateStr,n){const d=new Date(dateStr);d.setMonth(d.getMonth()+n);return d;}
@@ -1804,11 +1898,19 @@ function drawDonut(){
 function renderRule(){
   const inc=monthIncome(currentMonth);
   const need=['Vivienda','Servicios','Créditos','Seguros','Salud','Educación','Transporte'];
-  let needs=0,wants=0;
-  inMonth(S.fixed,currentMonth).forEach(x=>{(need.includes(x.category)?needs+=spentOf(x):wants+=spentOf(x));});
-  inMonth(S.variable,currentMonth).forEach(x=>{(need.includes(x.category)||['Alimentación','Hogar'].includes(x.category)?needs+=spentOf(x):wants+=spentOf(x));});
+  let needs=0,wants=0,savings=0;
+  inMonth(S.fixed,currentMonth).forEach(x=>{
+    if(x.category==='Ahorro') savings+=spentOf(x);
+    else if(need.includes(x.category)) needs+=spentOf(x);
+    else wants+=spentOf(x);
+  });
+  inMonth(S.variable,currentMonth).forEach(x=>{
+    if(x.category==='Ahorro') savings+=spentOf(x);
+    else if(need.includes(x.category)||['Alimentación','Hogar'].includes(x.category)) needs+=spentOf(x);
+    else wants+=spentOf(x);
+  });
   needs+=monthCredits(currentMonth); // las cuotas de crédito cuentan como necesidad
-  const save=Math.max(0,inc-needs-wants);
+  const save=savings+Math.max(0,inc-needs-wants-savings);
   const rows=[['Necesidades (50%)',needs,0.5,'red'],['Deseos (30%)',wants,0.3,'amber'],['Ahorro/Inversión (20%)',save,0.2,'green']];
   document.getElementById('rule503020').innerHTML=inc<=0?'<div class="empty" style="padding:14px">Registra ingresos para ver tu distribución.</div>':rows.map(([label,val,ideal,cls])=>{
     const pct=inc?val/inc*100:0;const target=inc*ideal;
