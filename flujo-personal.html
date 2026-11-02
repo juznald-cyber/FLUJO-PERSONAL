@@ -1396,12 +1396,17 @@ function del(type,id){
   if(!confirm('¿Eliminar este registro?'))return;
   if(type==='variable'){
     const it=S.variable.find(x=>x.id===id);
-    if(it && it.goalId){
-      const g=S.goals.find(x=>x.id===it.goalId);
+    if(it){
+      let g=it.goalId ? S.goals.find(x=>x.id===it.goalId) : null;
+      if(!g && it.desc && it.category==='Ahorro') g=S.goals.find(x=>it.desc.includes(x.name));
       if(g){
         g.saved=Math.max(0, (+g.saved||0) - (+it.spent||+it.budget||0));
       }
     }
+  }
+  if(type==='goal'){
+    // Si se elimina la meta, eliminar también los gastos asociados en el flujo
+    S.variable=S.variable.filter(x=>x.goalId!==id);
   }
   S[LIST_MAP[type]]=S[LIST_MAP[type]].filter(x=>x.id!==id);
   save();renderAll();toast('Eliminado');
@@ -1574,21 +1579,43 @@ function renderGoals(){
     if(g.deadline){const dl=daysBetween(todayISO(),g.deadline);
       if(remain>0&&dl>0){const need=remain/Math.max(1,Math.ceil(dl/30));deadlineTxt=`Para llegar antes de ${g.deadline} necesitas ~${money(need)}/mes.`;}}
     const cls=pct>=100?'green':pct>=50?'':'amber';
-    const goalContribs=(S.variable||[]).filter(x=>x.goalId===g.id).sort((a,b)=>(b.date||'').localeCompare(a.date||''));
-    const lastContrib=goalContribs[0];
-    const lastTxt=lastContrib?`<div style="margin-top:6px;font-size:.78rem;color:var(--txt-dim)">Último aporte: <b>${money(lastContrib.spent||lastContrib.budget)}</b> (${lastContrib.date}) · <span style="color:var(--green)">registrado en flujo ✓</span></div>`:'';
+    const goalContribs=(S.variable||[]).filter(x=>x.goalId===g.id || (x.category==='Ahorro'&&x.desc&&x.desc.includes(g.name))).sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+    let contribsHTML='';
+    if(goalContribs.length>0){
+      contribsHTML=`
+      <div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--line)">
+        <div style="font-size:.78rem;font-weight:700;color:var(--txt-dim);margin-bottom:6px">📋 Aportes registrados (${goalContribs.length}):</div>
+        <div style="display:flex;flex-direction:column;gap:5px;max-height:160px;overflow-y:auto;padding-right:2px">
+          ${goalContribs.map(c=>`
+            <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 10px;background:var(--card-2);border:1px solid var(--line);border-radius:10px;font-size:.82rem">
+              <div>
+                <span style="font-weight:700;color:var(--txt)">${money(c.spent||c.budget)}</span>
+                <span style="color:var(--muted);font-size:.74rem;margin-left:6px">📅 ${c.date||''}</span>
+              </div>
+              <div style="display:flex;gap:4px">
+                <button class="icon-btn" style="padding:2px 6px;font-size:.8rem" onclick="openForm('variable','${c.id}')" title="Editar monto o fecha">✏️</button>
+                <button class="btn sm danger" style="padding:2px 7px;font-size:.72rem" onclick="deleteGoalContribution('${c.id}')" title="Eliminar este aporte">🗑️ Borrar</button>
+              </div>
+            </div>
+          `).join('')}
+        </div>
+      </div>`;
+    }
     return `<div class="card">
       <div style="display:flex;justify-content:space-between;align-items:start">
         <div class="section-title" style="margin:0">🎯 ${g.name||'Meta'}</div>
-        <div><button class="icon-btn" onclick="openForm('goal','${g.id}')">✏️</button><button class="icon-btn" onclick="del('goal','${g.id}')">🗑️</button></div>
+        <div><button class="icon-btn" onclick="openForm('goal','${g.id}')" title="Editar meta">✏️</button><button class="icon-btn" onclick="del('goal','${g.id}')" title="Eliminar meta">🗑️</button></div>
       </div>
       <div style="margin:14px 0 4px;font-size:1.35rem;font-weight:800">${money(saved)} <span style="color:var(--muted);font-size:.9rem;font-weight:600">/ ${money(target)}</span></div>
       <div class="bar ${cls}"><span style="width:${pct}%"></span></div>
       <div style="display:flex;justify-content:space-between;margin-top:6px;font-size:.8rem;color:var(--muted)"><span>${pct.toFixed(0)}%</span><span>Faltan ${money(remain)}</span></div>
       <div style="margin-top:10px;font-size:.83rem;color:var(--txt-dim)">${proj}</div>
       ${deadlineTxt?`<div style="margin-top:6px;font-size:.83rem;color:var(--amber)">⏰ ${deadlineTxt}</div>`:''}
-      ${lastTxt}
-      <button class="btn sm primary" style="margin-top:12px" onclick="addToGoal('${g.id}')">＋ Registrar aporte</button>
+      ${contribsHTML}
+      <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
+        <button class="btn sm primary" onclick="addToGoal('${g.id}')">＋ Registrar aporte</button>
+        ${saved>0&&goalContribs.length===0?`<button class="btn sm" onclick="openForm('goal','${g.id}')" title="Modificar manualmente el total ahorrado">✏️ Ajustar total</button>`:''}
+      </div>
     </div>`;
   }).join('');
 }
@@ -1620,6 +1647,29 @@ function addToGoal(id){
     </div>
   `;
   document.getElementById('modalBg').classList.add('open');
+}
+function deleteGoalContribution(expId){
+  const exp = S.variable.find(x => x.id === expId);
+  if(!exp){
+    toast('No se encontró el registro del aporte');
+    return;
+  }
+  const amt = +exp.spent || +exp.budget || 0;
+  if(!confirm(`¿Deseas eliminar este aporte de ${money(amt)} (${exp.date})?\n\n• Se restará del acumulado de la meta de ahorro.\n• Se eliminará de los gastos del flujo general.`)) return;
+
+  // 1. Restar de la meta de ahorro correspondiente
+  let g = exp.goalId ? S.goals.find(x => x.id === exp.goalId) : null;
+  if(!g && exp.desc) g = S.goals.find(x => exp.desc.includes(x.name));
+  if(g){
+    g.saved = Math.max(0, (+g.saved || 0) - amt);
+  }
+
+  // 2. Eliminar de Gastos Variables
+  S.variable = S.variable.filter(x => x.id !== expId);
+
+  save();
+  renderAll();
+  toast('✓ Aporte de ' + money(amt) + ' eliminado de la meta y del flujo');
 }
 
 /* ============ Créditos ============ */
