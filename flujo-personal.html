@@ -966,6 +966,8 @@
         <button class="btn sm" onclick="toggleLockMonth()" style="background:var(--bg-2)">🔓 Desbloquear mes</button>
       </div>
 
+      <div id="monthHintBanner" style="display:none;background:rgba(10,132,255,.1);border:1px solid rgba(10,132,255,.3);color:var(--txt);padding:10px 14px;border-radius:12px;margin-bottom:14px;font-size:.88rem;align-items:center;gap:10px;flex-wrap:wrap"></div>
+
       <!-- ===== BANNER DE PRESUPUESTO (PLANIFICADO) ===== -->
       <div class="budget-banner">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:8px">
@@ -1268,7 +1270,51 @@ const defaultState=()=>({
   income:[], fixed:[], variable:[], invest:[], goals:[], reminders:[], credits:[],
   lockedMonths:[]
 });
-function loadKey(k){try{const r=JSON.parse(localStorage.getItem(k));return r?Object.assign(defaultState(),r):defaultState();}catch(e){return defaultState();}}
+function hasAnyData(obj){
+  return obj && ['income','fixed','variable','credits','invest','goals','reminders'].some(p => Array.isArray(obj[p]) && obj[p].length > 0);
+}
+function loadKey(k){
+  try{
+    let raw = localStorage.getItem(k);
+    let r = raw ? JSON.parse(raw) : null;
+
+    // Respaldo y recuperación automática si la clave está vacía
+    if(!hasAnyData(r)){
+      // 1. Probar la clave base 'miFlujoPersonal_v1'
+      const baseRaw = localStorage.getItem(KEY);
+      if(baseRaw){
+        try{
+          const baseObj = JSON.parse(baseRaw);
+          if(hasAnyData(baseObj)){
+            r = baseObj;
+            if(k !== KEY) localStorage.setItem(k, JSON.stringify(r));
+          }
+        }catch(e){}
+      }
+    }
+
+    if(!hasAnyData(r)){
+      // 2. Escanear todo localStorage buscando cualquier versión o respaldo con datos
+      for(let i=0; i<localStorage.length; i++){
+        const keyName = localStorage.key(i);
+        if(keyName && (keyName.includes('miFlujo') || keyName.includes('flujo')) && keyName !== CLOUD_KEY && keyName !== META_KEY && !keyName.startsWith('miFlujo_updatedAt')){
+          try{
+            const cand = JSON.parse(localStorage.getItem(keyName));
+            if(hasAnyData(cand)){
+              r = cand;
+              localStorage.setItem(k, JSON.stringify(r));
+              break;
+            }
+          }catch(e){}
+        }
+      }
+    }
+
+    return r ? Object.assign(defaultState(), r) : defaultState();
+  }catch(e){
+    return defaultState();
+  }
+}
 let S=loadKey(dataKey());
 function load(){return loadKey(dataKey());}
 function save(){localStorage.setItem(dataKey(),JSON.stringify(S));if(!applyingRemote)setLocalTs(Date.now());cloudMaybePush();}
@@ -1286,7 +1332,20 @@ function addMonths(dateStr,n){
   const parts = dateStr.slice(0,10).split('-').map(Number);
   return new Date(parts[0], parts[1]-1 + n, parts[2] || 1);
 }
-let currentMonth=todayISO().slice(0,7);
+
+function autoSelectMonthWithData(){
+  const months = new Set();
+  if(S.income) S.income.forEach(x => { if(x.date) months.add(ym(x.date)); });
+  if(S.fixed) S.fixed.forEach(x => { if(x.date) months.add(ym(x.date)); });
+  if(S.variable) S.variable.forEach(x => { if(x.date) months.add(ym(x.date)); });
+  if(S.credits) S.credits.forEach(c => (c.payments || []).forEach(p => { if(p.month) months.add(p.month); }));
+
+  const thisMonth = todayISO().slice(0,7);
+  if(months.has(thisMonth) || months.size === 0) return thisMonth;
+  const sorted = [...months].sort().reverse();
+  return sorted[0] || thisMonth;
+}
+let currentMonth=autoSelectMonthWithData();
 
 function isMonthLocked(m){
   if(!m) return false;
@@ -1765,13 +1824,20 @@ function creditTotals(m){
   S.credits.forEach(c=>{
     const term = +c.term || 0;
     const pay = +c.payment || 0;
-    if(c.startDate && ym(c.startDate) > targetMonth) return;
+    const leftNow = creditTermLeft(c);
+    const payments = Array.isArray(c.payments) ? c.payments : [];
 
-    const paidBefore = Math.min(term, creditPaidBefore(c, targetMonth));
-    const paidUpTo = Math.min(term, creditPaidUpTo(c, targetMonth));
+    // Pagos registrados en meses POSTERIORES al mes consultado (estrictamente > targetMonth)
+    const futurePaidCount = payments.filter(p => p.month && p.month > targetMonth).length;
 
-    const leftPlan = Math.max(0, term - paidBefore);
-    const leftReal = Math.max(0, term - paidUpTo);
+    // ¿Se pagó la cuota en este mes específico?
+    const paidThisMonth = creditPaidInMonth(c, targetMonth);
+
+    // En targetMonth, cuotas pendientes al finalizar el mes
+    const leftReal = Math.min(term, Math.max(0, leftNow + futurePaidCount));
+
+    // En targetMonth, cuotas pendientes al inicio del mes (antes del pago del mes)
+    const leftPlan = Math.min(term, Math.max(0, leftReal + (paidThisMonth ? 1 : 0)));
 
     planRemaining += pay * leftPlan;
     planCuotasLeft += leftPlan;
@@ -1779,9 +1845,11 @@ function creditTotals(m){
     realRemaining += pay * leftReal;
     realCuotasLeft += leftReal;
 
+    const paidUpTo = Math.max(0, term - leftReal);
     paidAmt += pay * paidUpTo;
-    if(leftReal > 0 || leftPlan > 0) {
-      if(leftReal > 0) monthly += pay;
+
+    if(leftReal > 0 || leftPlan > 0 || leftNow > 0) {
+      if(leftReal > 0 || leftNow > 0) monthly += pay;
       activeCredits++;
     }
   });
@@ -2196,10 +2264,12 @@ function renderCredits(){
   if(!S.credits.length){el.innerHTML=`<div class="card">${emptyMsg('Registra tus créditos (auto, hipoteca, tarjeta...) para seguir tu deuda mes a mes.')}</div>`;return;}
   el.innerHTML=S.credits.map(c=>{
     const term=+c.term||0,pay=+c.payment||0;
-    const notStarted = c.startDate && ym(c.startDate) > currentMonth;
-    const paidUpTo = notStarted ? 0 : Math.min(term, creditPaidUpTo(c, currentMonth));
-    const leftThisMonth = notStarted ? term : Math.max(0, term - paidUpTo);
+    const leftNow = creditTermLeft(c);
+    const payments = Array.isArray(c.payments) ? c.payments : [];
+    const futurePaidCount = payments.filter(p => p.month && p.month > currentMonth).length;
+    const leftThisMonth = Math.min(term, Math.max(0, leftNow + futurePaidCount));
     const remainingThisMonth = pay * leftThisMonth;
+    const paidUpTo = Math.max(0, term - leftThisMonth);
     const paidAmtThisMonth = pay * paidUpTo;
     const paidThisMonth=creditPaidInMonth(c,currentMonth);
     const [cy,cmo]=currentMonth.split('-'); const curMName=monthName(+cy,+cmo-1);
@@ -2233,7 +2303,7 @@ function renderCredits(){
         <button class="btn sm" onclick="toggleSchedule('${c.id}')">📅 Ver plan mes a mes</button>
       </div>
       <div id="sched-${c.id}" style="display:none;margin-top:14px;max-height:320px;overflow-y:auto">
-        ${left<=0?'<div class="empty" style="padding:14px">Sin cuotas pendientes 🎉</div>':
+        ${leftThisMonth<=0?'<div class="empty" style="padding:14px">Sin cuotas pendientes 🎉</div>':
           `<table><thead><tr><th>Cuota</th><th>Fecha estimada</th><th class="num">Pago</th><th class="num">Saldo restante</th></tr></thead><tbody>${schedRows}</tbody></table>`}
       </div>
     </div>`;
@@ -2293,7 +2363,7 @@ function renderMonthPicker(){
   const months=[...set].sort().reverse();
   const p=document.getElementById('monthPicker');
   p.innerHTML=months.map(m=>{const[y,mo]=m.split('-');return `<option value="${m}" ${m===currentMonth?'selected':''}>${monthName(+y,+mo-1)}</option>`;}).join('');
-  p.onchange=()=>{currentMonth=p.value;renderDashboard();};
+  p.onchange=()=>{setMonth(p.value);};
 }
 
 // Copia TODO (ingresos, gastos fijos y variables) del mes anterior al mes seleccionado,
@@ -2345,6 +2415,24 @@ function renderDashboard(){
   const lb = document.getElementById('lockBanner');
   if(lb){
     lb.style.display = isLocked ? 'flex' : 'none';
+  }
+
+  const hb = document.getElementById('monthHintBanner');
+  if(hb){
+    const otherMonthsWithData = new Set();
+    [...S.income, ...S.fixed, ...S.variable].forEach(x => { if(x.date) otherMonthsWithData.add(ym(x.date)); });
+    const totalInMonth = inMonth(S.income,currentMonth).length + inMonth(S.fixed,currentMonth).length + inMonth(S.variable,currentMonth).length;
+    if(totalInMonth === 0 && otherMonthsWithData.size > 0){
+      const listMonths = [...otherMonthsWithData].sort().reverse().map(m => {
+        const[my,mmo]=m.split('-');
+        return `<a onclick="setMonth('${m}')" style="font-weight:700;text-decoration:underline;cursor:pointer">${monthName(+my,+mmo-1)}</a>`;
+      }).join(', ');
+      hb.innerHTML = `<span>💡 <b>Tienes registros guardados en:</b> ${listMonths} · <a onclick="toggleAllRecords()" style="font-weight:700;text-decoration:underline;cursor:pointer">Ver todos los meses</a></span>`;
+      hb.style.display = 'flex';
+    } else {
+      hb.style.display = 'none';
+      hb.innerHTML = '';
+    }
   }
 
   document.getElementById('monthLabel').innerHTML='Mostrando: '+monthName(+y,+mo-1)+(isLocked ? ' <span class="pill" style="background:rgba(255,107,125,.2);color:var(--red);font-weight:700;font-size:.74rem;padding:2px 8px;margin-left:6px">🔒 Bloqueado</span>' : '');
@@ -2735,8 +2823,8 @@ window.onCloudAuth=(u)=>{ cloudUser=u; initialSynced=false; renderCloudUI();
     document.getElementById('authGate').classList.remove('open');   // entrar: ocultar pantalla de acceso
     activeUid=u.uid;                       // cambiar al almacenamiento local EXCLUSIVO de este usuario
     cloudDirty=false; lastAppliedAt=0;
-    currentMonth=todayISO().slice(0,7); showAllRecords=false;  // cada usuario arranca en el mes actual
-    S=loadKey(dataKey());                  // cargar SOLO los datos de este usuario (o vacío si es nuevo)
+    S=loadKey(dataKey());                  // cargar los datos de este usuario (o migrar automáticamente si el espacio local tenía datos)
+    currentMonth=autoSelectMonthWithData(); showAllRecords=false;
     applyTheme(); renderAll();
     toast('Bienvenido '+(u.email||'usuario')+' ☁️');
     window.CloudSync.subscribe(u.uid);   // escucha en vivo (aplica tras la reconciliación)
@@ -2761,12 +2849,18 @@ function cloudInitialSync(uid){
   if(!window.CloudSync) return;
   window.CloudSync.pull(uid).then(cloud=>{
     const localTs=getLocalTs();
-    if(cloud && cloud.state && (cloud.updatedAt||0) >= localTs){
-      applyRemote(cloud,false);        // la nube está igual o más nueva → usarla
-    } else {
-      cloudPushNow();                  // lo local es más nuevo (o la nube está vacía) → subirlo
+    if(cloud && cloud.state && hasAnyData(cloud.state)){
+      if((cloud.updatedAt||0) >= localTs || !hasAnyData(S)){
+        applyRemote(cloud,false);        // la nube tiene datos y está igual o más nueva (o local vacío) → usarla
+      } else {
+        cloudPushNow();                  // lo local tiene datos y es más nuevo → subirlo
+      }
+    } else if(hasAnyData(S)){
+      cloudPushNow();                    // la nube está vacía pero local tiene datos → subir para respaldar
     }
     initialSynced=true;
+    currentMonth=autoSelectMonthWithData();
+    renderAll();
     cloudMsg('Conectado y sincronizado ('+new Date().toLocaleTimeString(S.currency.locale)+').','ok');
   }).catch(e=>{ initialSynced=true; window.onCloudError(e.code||e.message); });
 }
@@ -2802,8 +2896,8 @@ function cloudLogin(){ if(!window.CloudSync){toast('Firebase aún no carga, espe
 function cloudLogout(){
   if(window.CloudSync) window.CloudSync.logout();
   cloudUser=null; initialSynced=false; cloudDirty=false; activeUid=null;
-  currentMonth=todayISO().slice(0,7); showAllRecords=false;   // volver al mes actual
-  S=defaultState();                        // limpiar la pantalla (cada usuario conserva lo suyo en su propio espacio)
+  S=loadKey(dataKey());
+  currentMonth=autoSelectMonthWithData(); showAllRecords=false;
   applyTheme(); renderAll(); renderCloudUI(); toast('Sesión cerrada');
 }
 
@@ -2880,7 +2974,14 @@ function authReset(){
   if(!window.CloudSync){authErr('Firebase aún no carga.');return;}
   window.CloudSync.resetPassword(email).then(()=>{authErr('');toast('Te enviamos un correo para restablecer tu contraseña 📧');}).catch(e=>authErr(fbErrMsg(e.code||e.message)));
 }
-function authLocalMode(){ document.getElementById('authGate').classList.remove('open'); }
+function authLocalMode(){
+  document.getElementById('authGate').classList.remove('open');
+  activeUid=null;
+  S=loadKey(dataKey());
+  currentMonth=autoSelectMonthWithData();
+  applyTheme();
+  renderAll();
+}
 function togglePass(){ const i=document.getElementById('authPass'),b=document.getElementById('authPassToggle'); if(!i)return; if(i.type==='password'){i.type='text';b.textContent='🙈';}else{i.type='password';b.textContent='👁️';} }
 // Mensaje de estado PERMANENTE de sincronización (no desaparece como el toast)
 function cloudMsg(text,type){ const el=document.getElementById('cloudSyncMsg'); if(!el)return; if(!text){el.innerHTML='';return;}
@@ -2977,7 +3078,7 @@ function installApp(){
 }
 
 window.addEventListener('resize',()=>{drawBarChart();drawDonut();});
-applyTheme();renderAll();authGateInit();showVerse('dashboard');
+currentMonth=autoSelectMonthWithData();applyTheme();renderAll();authGateInit();showVerse('dashboard');
 </script>
 
 <!-- ============ Módulo Firebase (sincronización en la nube) ============ -->
