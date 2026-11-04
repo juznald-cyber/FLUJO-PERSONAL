@@ -952,9 +952,18 @@
         </div>
         <div class="top-actions">
           <select id="monthPicker" class="btn" style="padding-right:30px"></select>
+          <button class="btn" id="lockMonthBtn" onclick="toggleLockMonth()" title="Bloquear o desbloquear este mes">🔒 Bloquear mes</button>
           <button class="btn" id="copyPrevBtn" onclick="copyPrevMonth()" title="Copiar los datos del mes anterior a este mes">📋 Traer mes anterior</button>
           <button class="btn" id="themeBtn">🌓 Tema</button>
         </div>
+      </div>
+
+      <div id="lockBanner" style="display:none;background:rgba(255,107,125,.12);border:1px solid var(--red);color:var(--txt);padding:10px 14px;border-radius:12px;margin-bottom:14px;font-size:.88rem;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
+        <div style="display:flex;align-items:center;gap:8px">
+          <span style="font-size:1.2rem">🔒</span>
+          <span><b>Mes bloqueado:</b> Este mes está protegido contra modificaciones. Desbloquéalo si necesitas editarlo.</span>
+        </div>
+        <button class="btn sm" onclick="toggleLockMonth()" style="background:var(--bg-2)">🔓 Desbloquear mes</button>
       </div>
 
       <!-- ===== BANNER DE PRESUPUESTO (PLANIFICADO) ===== -->
@@ -1256,7 +1265,8 @@ function dataKey(){ return activeUid ? (KEY+'_'+activeUid) : KEY; }
 const defaultState=()=>({
   currency:{symbol:'$',locale:'es-MX',code:'MXN'},
   theme:'dark',
-  income:[], fixed:[], variable:[], invest:[], goals:[], reminders:[], credits:[]
+  income:[], fixed:[], variable:[], invest:[], goals:[], reminders:[], credits:[],
+  lockedMonths:[]
 });
 function loadKey(k){try{const r=JSON.parse(localStorage.getItem(k));return r?Object.assign(defaultState(),r):defaultState();}catch(e){return defaultState();}}
 let S=loadKey(dataKey());
@@ -1271,7 +1281,33 @@ function todayISO(){return new Date().toISOString().slice(0,10);}
 function monthName(y,m){return new Date(y,m,1).toLocaleDateString(S.currency.locale,{month:'long',year:'numeric'});}
 function monthTag(d){ if(!d) return '—'; const p=d.split('-'); return new Date(+p[0],+p[1]-1,1).toLocaleDateString(S.currency.locale,{month:'short',year:'numeric'}); }
 function daysBetween(a,b){return Math.round((new Date(b)-new Date(a))/86400000);}
+function addMonths(dateStr,n){
+  if(!dateStr) return new Date();
+  const parts = dateStr.slice(0,10).split('-').map(Number);
+  return new Date(parts[0], parts[1]-1 + n, parts[2] || 1);
+}
 let currentMonth=todayISO().slice(0,7);
+
+function isMonthLocked(m){
+  if(!m) return false;
+  const ymStr = m.length > 7 ? m.slice(0,7) : m;
+  return Array.isArray(S.lockedMonths) && S.lockedMonths.includes(ymStr);
+}
+function toggleLockMonth(m){
+  const target = m || currentMonth;
+  if(!Array.isArray(S.lockedMonths)) S.lockedMonths = [];
+  const [y, mo] = target.split('-');
+  const name = monthName(+y, +mo - 1);
+  if(isMonthLocked(target)){
+    S.lockedMonths = S.lockedMonths.filter(x => x !== target);
+    toast(`🔓 Mes desbloqueado: ${name}. Ahora puedes realizar cambios.`);
+  } else {
+    S.lockedMonths.push(target);
+    toast(`🔒 Mes bloqueado: ${name}. Modificaciones protegidas.`);
+  }
+  save();
+  renderAll();
+}
 
 function toast(msg){const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');clearTimeout(t._t);t._t=setTimeout(()=>t.classList.remove('show'),2600);}
 
@@ -1454,9 +1490,17 @@ function setFormSpentZero(){
 }
 
 function openForm(type,id){
+  const item=id?S[LIST_MAP[type]]?.find(x=>x.id===id):null;
+  if(id && item && item.date && isMonthLocked(ym(item.date))){
+    toast('🔒 El mes '+monthTag(item.date)+' está bloqueado. Desbloquéalo para editar este registro.');
+    return;
+  }
+  if(!id && isMonthLocked(currentMonth)){
+    toast('🔒 El mes seleccionado ('+monthTag(currentMonth+'-01')+') está bloqueado. Desbloquéalo para agregar registros.');
+    return;
+  }
   editing={type,id};
   const cfg=FORMS[type];
-  const item=id?S[LIST_MAP[type]].find(x=>x.id===id):null;
   document.getElementById('modalTitle').textContent=(id?'Editar ':'Nuevo ')+cfg.title.toLowerCase();
   const saveBtn=document.getElementById('modalSave');if(saveBtn)saveBtn.textContent='Guardar';
   const f=document.getElementById('modalForm');
@@ -1527,6 +1571,11 @@ document.getElementById('modalSave').onclick=()=>{
     const amt=Number(f.elements['amount'].value);
     const date=f.elements['date'].value || todayISO();
     if(!amt || amt<=0){ toast('Ingresa un monto válido mayor a 0'); return; }
+    const m = ym(date);
+    if(isMonthLocked(m)){
+      toast('🔒 El mes '+monthTag(date)+' está bloqueado. Desbloquéalo para registrar aportes en esa fecha.');
+      return;
+    }
     const g=S.goals.find(x=>x.id===id);
     if(!g){ toast('Meta no encontrada'); return; }
 
@@ -1546,7 +1595,6 @@ document.getElementById('modalSave').onclick=()=>{
     S.variable.push(expObj);
 
     // Cambiar al mes del aporte para que el usuario vea de inmediato la rebaja en el banner de presupuesto y ejecutado
-    const m = ym(date);
     if(m) currentMonth = m;
 
     save();
@@ -1567,6 +1615,11 @@ document.getElementById('modalSave').onclick=()=>{
     else obj[fd.k]=el.value;
     if(fd.req&&(obj[fd.k]===''||obj[fd.k]===undefined)){toast('Completa: '+fd.l);return;}
   }
+  const itemMonth = obj.date ? ym(obj.date) : currentMonth;
+  if(isMonthLocked(itemMonth)){
+    toast('🔒 El mes '+monthTag(itemMonth+'-01')+' está bloqueado. Desbloquéalo para guardar cambios.');
+    return;
+  }
   if(type==='variable' && obj.goalId){
     const g = S.goals.find(x=>x.id===obj.goalId);
     if(g){
@@ -1579,6 +1632,11 @@ document.getElementById('modalSave').onclick=()=>{
   save();closeModal();renderAll();toast('Guardado ✓');
 };
 function del(type,id){
+  const item = S[LIST_MAP[type]]?.find(x=>x.id===id);
+  if(item && item.date && isMonthLocked(ym(item.date))){
+    toast('🔒 El mes '+monthTag(item.date)+' está bloqueado. Desbloquéalo para eliminar este registro.');
+    return;
+  }
   if(!confirm('¿Eliminar este registro?'))return;
   if(type==='variable'){
     const it=S.variable.find(x=>x.id===id);
@@ -1600,6 +1658,10 @@ function del(type,id){
 function markExpensePaid(type,id){
   const listName=LIST_MAP[type];if(!listName||!S[listName])return;
   const item=S[listName].find(x=>x.id===id);if(!item)return;
+  if(item.date && isMonthLocked(ym(item.date))){
+    toast('🔒 El mes '+monthTag(item.date)+' está bloqueado. Desbloquéalo para modificar el pago.');
+    return;
+  }
   const b=budgetOf(item),sp=spentOf(item);
   if(b<=0){toast('Este registro no tiene un presupuesto definido');return;}
   if(sp===b){
@@ -1657,14 +1719,84 @@ function creditActiveIn(c,m){
 // La cuota del crédito SOLO cuenta como egreso en el mes en que se marca como pagada
 function monthCredits(m){return S.credits.reduce((a,c)=>a+((c.payments||[]).filter(p=>p.month===m).reduce((s,p)=>s+(+p.amount||0),0)),0);}
 function monthExpense(m){return monthFixed(m)+monthVariable(m)+monthCredits(m);}
-function creditTotals(){
-  let remaining=0,paidAmt=0,monthly=0,cuotasLeft=0;
+// Lista normalizada de pagos de un crédito (con soporte a datos antiguos)
+function getCreditPaymentsList(c){
+  if(Array.isArray(c.payments)) return c.payments;
+  const list = [];
+  const count = +c.paid || 0;
+  for(let i=0; i<count; i++){
+    let m = null;
+    if(c.startDate){
+      m = addMonths(c.startDate, i).toISOString().slice(0,7);
+    }
+    list.push({ month: m, amount: +c.payment || 0 });
+  }
+  return list;
+}
+
+// Mes asignado a un pago específico de cuota:
+function getPaymentMonth(c, p, index){
+  if(p && p.month) return p.month;
+  if(c && c.startDate){
+    return addMonths(c.startDate, index).toISOString().slice(0,7);
+  }
+  return '0000-00';
+}
+
+// Cuántas cuotas de este crédito se pagaron estrictamente antes del mes m:
+function creditPaidBefore(c, m){
+  const list = getCreditPaymentsList(c);
+  return list.filter((p, i) => getPaymentMonth(c, p, i) < m).length;
+}
+
+// Cuántas cuotas de este crédito se pagaron hasta el mes m (inclusive):
+function creditPaidUpTo(c, m){
+  const list = getCreditPaymentsList(c);
+  return list.filter((p, i) => getPaymentMonth(c, p, i) <= m).length;
+}
+
+// Totales de crédito considerando el mes consultado (preserva deuda histórica real y planificada de ese mes):
+function creditTotals(m){
+  const targetMonth = m || currentMonth;
+  let planRemaining=0, planCuotasLeft=0;
+  let realRemaining=0, realCuotasLeft=0;
+  let paidAmt=0, monthly=0, activeCredits=0;
+
   S.credits.forEach(c=>{
-    const left=creditTermLeft(c),pay=+c.payment||0;
-    remaining+=pay*left; paidAmt+=pay*creditPaidCount(c); cuotasLeft+=left;
-    if(left>0)monthly+=pay;
+    const term = +c.term || 0;
+    const pay = +c.payment || 0;
+    if(c.startDate && ym(c.startDate) > targetMonth) return;
+
+    const paidBefore = Math.min(term, creditPaidBefore(c, targetMonth));
+    const paidUpTo = Math.min(term, creditPaidUpTo(c, targetMonth));
+
+    const leftPlan = Math.max(0, term - paidBefore);
+    const leftReal = Math.max(0, term - paidUpTo);
+
+    planRemaining += pay * leftPlan;
+    planCuotasLeft += leftPlan;
+
+    realRemaining += pay * leftReal;
+    realCuotasLeft += leftReal;
+
+    paidAmt += pay * paidUpTo;
+    if(leftReal > 0 || leftPlan > 0) {
+      if(leftReal > 0) monthly += pay;
+      activeCredits++;
+    }
   });
-  return{remaining,paidAmt,monthly,cuotasLeft,active:S.credits.filter(c=>creditTermLeft(c)>0).length};
+
+  return {
+    remaining: realRemaining,
+    planRemaining,
+    planCuotasLeft,
+    realRemaining,
+    realCuotasLeft,
+    paidAmt,
+    monthly,
+    cuotasLeft: realCuotasLeft,
+    active: activeCredits
+  };
 }
 function investTotals(){
   const bal=S.invest.reduce((a,b)=>a+(+b.balance||0),0);
@@ -1685,14 +1817,21 @@ function monthOptionsHTML(){
   [...S.income,...S.variable,...S.fixed].forEach(x=>{if(x.date)set.add(ym(x.date));});
   const nowD=new Date();
   for(let i=1;i<=3;i++){const d=new Date(nowD.getFullYear(),nowD.getMonth()+i,1);set.add(d.toISOString().slice(0,7));}
-  return [...set].sort().reverse().map(m=>{const[y,mo]=m.split('-');return `<option value="${m}" ${m===currentMonth?'selected':''}>${monthName(+y,+mo-1)}</option>`;}).join('');
+  return [...set].sort().reverse().map(m=>{
+    const[y,mo]=m.split('-');
+    const lk = isMonthLocked(m) ? ' 🔒' : '';
+    return `<option value="${m}" ${m===currentMonth?'selected':''}>${monthName(+y,+mo-1)}${lk}</option>`;
+  }).join('');
 }
 function monthFilterBar(shown,total){
+  const lockedBadge = isMonthLocked(currentMonth)
+    ? ` · <span class="pill" style="background:rgba(255,107,125,.2);color:var(--red);font-weight:700;font-size:.72rem;padding:2px 7px">🔒 Mes bloqueado</span> <a onclick="toggleLockMonth('${currentMonth}')" style="font-size:.76rem;margin-left:4px">(Desbloquear)</a>`
+    : ` · <a onclick="toggleLockMonth('${currentMonth}')" style="font-size:.76rem;color:var(--muted)">🔒 Bloquear mes</a>`;
   if(showAllRecords){
     return `<div class="filterbar">📅 Mostrando <b>todos los meses</b> (${total} registros) · <a onclick="toggleAllRecords()">Ver un solo mes</a></div>`;
   }
   const sel=`<select onchange="setMonth(this.value)">${monthOptionsHTML()}</select>`;
-  return `<div class="filterbar">📅 Mes: ${sel} <span style="color:var(--muted)">(${shown} registro${shown===1?'':'s'})</span> · <a onclick="toggleAllRecords()">Ver todos los meses</a></div>`;
+  return `<div class="filterbar">📅 Mes: ${sel} <span style="color:var(--muted)">(${shown} registro${shown===1?'':'s'})</span> · <a onclick="toggleAllRecords()">Ver todos los meses</a>${lockedBadge}</div>`;
 }
 function applyMonthFilter(all){ return showAllRecords ? all : all.filter(x=>x.date&&ym(x.date)===currentMonth); }
 
@@ -1978,6 +2117,10 @@ function deleteGoalContribution(expId){
     toast('No se encontró el registro del aporte');
     return;
   }
+  if(exp.date && isMonthLocked(ym(exp.date))){
+    toast('🔒 El mes '+monthTag(exp.date)+' está bloqueado. Desbloquéalo para eliminar aportes de esa fecha.');
+    return;
+  }
   const amt = +exp.spent || +exp.budget || 0;
   if(!confirm(`¿Deseas eliminar este aporte de ${money(amt)} (${exp.date})?\n\n• Se restará del acumulado de la meta de ahorro.\n• Se eliminará de los gastos del flujo general.`)) return;
 
@@ -1997,7 +2140,6 @@ function deleteGoalContribution(expId){
 }
 
 /* ============ Créditos ============ */
-function addMonths(dateStr,n){const d=new Date(dateStr);d.setMonth(d.getMonth()+n);return d;}
 function creditSchedule(c){
   // plan de las cuotas RESTANTES: nº, fecha, pago, saldo tras pagar
   const term=+c.term||0,pay=+c.payment||0,paid=creditPaidCount(c);
@@ -2010,6 +2152,10 @@ function creditSchedule(c){
   return rows;
 }
 function payCredit(id){
+  if(isMonthLocked(currentMonth)){
+    toast('🔒 El mes '+monthTag(currentMonth+'-01')+' está bloqueado. Desbloquéalo para registrar pagos.');
+    return;
+  }
   const c=S.credits.find(x=>x.id===id);if(!c)return;
   if(creditTermLeft(c)<=0){toast('Este crédito ya está pagado 🎉');return;}
   if(!Array.isArray(c.payments)){ c.payments=[]; const prev=+c.paid||0; for(let i=0;i<prev;i++) c.payments.push({month:null,amount:(+c.payment||0)}); } // migrar conteo previo (sin mes asignado)
@@ -2020,6 +2166,10 @@ function payCredit(id){
   toast(creditTermLeft(c)<=0?'🎉 ¡Crédito liquidado!':'Cuota de '+monthName(+y,+mo-1)+' registrada como egreso ✓');
 }
 function unpayCredit(id){
+  if(isMonthLocked(currentMonth)){
+    toast('🔒 El mes '+monthTag(currentMonth+'-01')+' está bloqueado. Desbloquéalo para modificar pagos.');
+    return;
+  }
   const c=S.credits.find(x=>x.id===id); if(!c||!Array.isArray(c.payments))return;
   const idx=c.payments.map(p=>p.month).lastIndexOf(currentMonth);
   if(idx<0){toast('No hay pago de este mes para deshacer');return;}
@@ -2030,9 +2180,9 @@ function unpayCredit(id){
 function toggleSchedule(id){const el=document.getElementById('sched-'+id);if(el)el.style.display=el.style.display==='none'?'block':'none';}
 
 function renderCredits(){
-  const t=creditTotals();
-  document.getElementById('crDebt').textContent=money(t.remaining);
-  document.getElementById('crDebtHint').textContent=t.cuotasLeft+' cuota(s) por pagar';
+  const t=creditTotals(currentMonth);
+  document.getElementById('crDebt').textContent=money(t.realRemaining);
+  document.getElementById('crDebtHint').textContent=t.realCuotasLeft+' cuota(s) por pagar';
   document.getElementById('crMonthly').textContent=money(t.monthly);
   document.getElementById('crPaid').textContent=money(t.paidAmt);
   document.getElementById('crPaidHint').textContent=t.active+' crédito(s) activo(s)';
@@ -2040,18 +2190,22 @@ function renderCredits(){
   if(t.active>0){badge.style.display='';badge.textContent=t.active;}else badge.style.display='none';
 
   const mbar=document.getElementById('creditMonthBar');
-  if(mbar) mbar.innerHTML=`<div class="filterbar">📅 Marcar/ver pagos del mes: <select onchange="setMonth(this.value)">${monthOptionsHTML()}</select></div>`;
+  if(mbar) mbar.innerHTML=`<div class="filterbar">📅 Marcar/ver pagos del mes: <select onchange="setMonth(this.value)">${monthOptionsHTML()}</select>${isMonthLocked(currentMonth)?' · <span class="pill" style="background:rgba(255,107,125,.2);color:var(--red);font-weight:700;font-size:.72rem;padding:2px 7px">🔒 Mes bloqueado</span>':''}</div>`;
 
   const el=document.getElementById('creditsGrid');
   if(!S.credits.length){el.innerHTML=`<div class="card">${emptyMsg('Registra tus créditos (auto, hipoteca, tarjeta...) para seguir tu deuda mes a mes.')}</div>`;return;}
   el.innerHTML=S.credits.map(c=>{
-    const term=+c.term||0,pay=+c.payment||0,paid=creditPaidCount(c);
-    const left=creditTermLeft(c);
+    const term=+c.term||0,pay=+c.payment||0;
+    const notStarted = c.startDate && ym(c.startDate) > currentMonth;
+    const paidUpTo = notStarted ? 0 : Math.min(term, creditPaidUpTo(c, currentMonth));
+    const leftThisMonth = notStarted ? term : Math.max(0, term - paidUpTo);
+    const remainingThisMonth = pay * leftThisMonth;
+    const paidAmtThisMonth = pay * paidUpTo;
     const paidThisMonth=creditPaidInMonth(c,currentMonth);
     const [cy,cmo]=currentMonth.split('-'); const curMName=monthName(+cy,+cmo-1);
-    const totalToPay=pay*term, remaining=pay*left, paidAmt=pay*paid;
-    const pct=term?Math.min(100,paid/term*100):0;
-    const done=left<=0;
+    const totalToPay=pay*term;
+    const pct=term?Math.min(100,paidUpTo/term*100):0;
+    const done=leftThisMonth<=0;
     const endDate=term?addMonths(c.startDate||todayISO(),term-1).toLocaleDateString(S.currency.locale,{month:'short',year:'numeric'}):'—';
     const cls=done?'green':pct>=60?'':'amber';
     const sched=creditSchedule(c);
@@ -2062,15 +2216,15 @@ function renderCredits(){
         <div><button class="icon-btn" onclick="openForm('credit','${c.id}')">✏️</button><button class="icon-btn" onclick="del('credit','${c.id}')">🗑️</button></div>
       </div>
       <div style="font-size:.82rem;color:var(--muted);margin-top:2px">${c.entity||''} ${c.type?'· '+c.type:''} ${c.rate?'· '+c.rate+'% anual':''}</div>
-      <div style="margin:14px 0 4px;font-size:1.35rem;font-weight:800" class="neg">${money(remaining)} <span style="color:var(--muted);font-size:.85rem;font-weight:600">pendiente</span></div>
+      <div style="margin:14px 0 4px;font-size:1.35rem;font-weight:800" class="neg">${money(remainingThisMonth)} <span style="color:var(--muted);font-size:.85rem;font-weight:600">pendiente en ${curMName}</span></div>
       <div class="bar ${cls}"><span style="width:${pct}%"></span></div>
       <div style="display:flex;justify-content:space-between;margin-top:6px;font-size:.8rem;color:var(--muted)">
-        <span>Cuota ${paid} de ${term} (${pct.toFixed(0)}%)</span><span>Fin ~ ${endDate}</span></div>
+        <span>Cuota ${paidUpTo} de ${term} (${pct.toFixed(0)}%)</span><span>Fin ~ ${endDate}</span></div>
       <div style="display:flex;gap:18px;margin-top:12px;font-size:.85rem;flex-wrap:wrap">
         <div><div style="color:var(--muted);font-size:.74rem">Cuota mensual</div><b>${money(pay)}</b></div>
         <div><div style="color:var(--muted);font-size:.74rem">Total del crédito</div><b>${money(totalToPay)}</b></div>
-        <div><div style="color:var(--muted);font-size:.74rem">Ya pagado</div><b class="pos">${money(paidAmt)}</b></div>
-        <div><div style="color:var(--muted);font-size:.74rem">Cuotas restantes</div><b>${left}</b></div>
+        <div><div style="color:var(--muted);font-size:.74rem">Pagado a ${curMName}</div><b class="pos">${money(paidAmtThisMonth)}</b></div>
+        <div><div style="color:var(--muted);font-size:.74rem">Cuotas restantes</div><b>${leftThisMonth}</b></div>
       </div>
       <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap;align-items:center">
         ${paidThisMonth
@@ -2145,6 +2299,10 @@ function renderMonthPicker(){
 // Copia TODO (ingresos, gastos fijos y variables) del mes anterior al mes seleccionado,
 // como registros nuevos e independientes con la fecha ajustada al mes destino.
 function copyPrevMonth(){
+  if(isMonthLocked(currentMonth)){
+    toast('🔒 El mes '+monthTag(currentMonth+'-01')+' está bloqueado. Desbloquéalo para copiar registros.');
+    return;
+  }
   const [y,mo]=currentMonth.split('-').map(Number);      // mes destino = el seleccionado en el dashboard
   const prevD=new Date(y,mo-2,1);
   const prevYm=prevD.toISOString().slice(0,7);
@@ -2170,7 +2328,26 @@ function renderDashboard(){
   renderMonthPicker();
   const inc=monthIncome(currentMonth),exp=monthExpense(currentMonth),net=inc-exp;
   const[y,mo]=currentMonth.split('-');
-  document.getElementById('monthLabel').textContent='Mostrando: '+monthName(+y,+mo-1);
+  const isLocked = isMonthLocked(currentMonth);
+
+  const lockBtn = document.getElementById('lockMonthBtn');
+  if(lockBtn){
+    if(isLocked){
+      lockBtn.innerHTML = '🔓 Desbloquear mes';
+      lockBtn.className = 'btn warn';
+      lockBtn.title = 'Este mes está bloqueado contra modificaciones. Clic para desbloquear.';
+    } else {
+      lockBtn.innerHTML = '🔒 Bloquear mes';
+      lockBtn.className = 'btn';
+      lockBtn.title = 'Bloquear este mes para evitar cambios accidentales';
+    }
+  }
+  const lb = document.getElementById('lockBanner');
+  if(lb){
+    lb.style.display = isLocked ? 'flex' : 'none';
+  }
+
+  document.getElementById('monthLabel').innerHTML='Mostrando: '+monthName(+y,+mo-1)+(isLocked ? ' <span class="pill" style="background:rgba(255,107,125,.2);color:var(--red);font-weight:700;font-size:.74rem;padding:2px 8px;margin-left:6px">🔒 Bloqueado</span>' : '');
 
   // --- Datos de Presupuesto (Banner) ---
   const fixedBud=inMonth(S.fixed,currentMonth).reduce((a,b)=>a+budgetOf(b),0);
@@ -2178,7 +2355,7 @@ function renderDashboard(){
   const credBud=S.credits.filter(c=>creditActiveIn(c,currentMonth)).reduce((a,c)=>a+(+c.payment||0),0);
   const totalBudExp=fixedBud+varBud+credBud;
   const netBud=inc-totalBudExp;
-  const ct=creditTotals();
+  const ct=creditTotals(currentMonth);
 
   const sbIncEl=document.getElementById('sbIncome');if(sbIncEl)sbIncEl.textContent=money(inc);
   const sbIncHEl=document.getElementById('sbIncomeHint');if(sbIncHEl)sbIncHEl.textContent=inMonth(S.income,currentMonth).length+' registro(s)';
@@ -2196,8 +2373,8 @@ function renderDashboard(){
     sbNetHEl.innerHTML=inc>0?`Ahorro proyectado: <b>${(netBud/inc*100).toFixed(0)}%</b>`:'Sin ingresos proyectados';
   }
 
-  const sbDebtEl=document.getElementById('sbDebt');if(sbDebtEl)sbDebtEl.textContent=money(ct.remaining);
-  const sbDebtHEl=document.getElementById('sbDebtHint');if(sbDebtHEl)sbDebtHEl.textContent=ct.cuotasLeft>0?ct.cuotasLeft+' cuotas · '+money(ct.monthly)+'/mes':'Sin deudas 🎉';
+  const sbDebtEl=document.getElementById('sbDebt');if(sbDebtEl)sbDebtEl.textContent=money(ct.planRemaining);
+  const sbDebtHEl=document.getElementById('sbDebtHint');if(sbDebtHEl)sbDebtHEl.textContent=ct.planCuotasLeft>0?ct.planCuotasLeft+' cuotas · '+money(ct.monthly)+'/mes':'Sin deudas 🎉';
 
   // --- Datos Ejecutados / Reales ---
   document.getElementById('sIncome').textContent=money(inc);
@@ -2209,8 +2386,8 @@ function renderDashboard(){
   const t=investTotals();
   document.getElementById('sWorth').textContent=money(t.bal);
   document.getElementById('sWorthHint').innerHTML=t.gain>=0?`<span class="pos">▲ ${money(t.gain)}</span> de ganancia`:`<span class="neg">▼ ${money(Math.abs(t.gain))}</span> de pérdida`;
-  document.getElementById('sDebt').textContent=money(ct.remaining);
-  document.getElementById('sDebtHint').textContent=ct.cuotasLeft>0?ct.cuotasLeft+' cuotas · '+money(ct.monthly)+'/mes':'Sin deudas 🎉';
+  document.getElementById('sDebt').textContent=money(ct.realRemaining);
+  document.getElementById('sDebtHint').textContent=ct.realCuotasLeft>0?ct.realCuotasLeft+' cuotas · '+money(ct.monthly)+'/mes':'Sin deudas 🎉';
 
   renderBudgetVsSpent();
   drawBarChart();drawDonut();renderRule();renderHealth();renderAlerts();
@@ -2427,8 +2604,14 @@ function exportXLSX(){
   // Créditos
   let credits;
   if(only){
-    credits=[['Nombre','Entidad','Tipo','Cuota mensual','¿Pagada en el mes?','Egreso del mes','Deuda pendiente']];
-    S.credits.forEach(c=>{const pg=creditPaidInMonth(c,only);credits.push([c.name||'',c.entity||'',c.type||'',n(c.payment),pg?'Sí':'No',n(pg?(+c.payment||0):0),n((+c.payment||0)*creditTermLeft(c))]);});
+    credits=[['Nombre','Entidad','Tipo','Cuota mensual','¿Pagada en el mes?','Egreso del mes','Deuda pendiente en el mes']];
+    S.credits.forEach(c=>{
+      const pg=creditPaidInMonth(c,only);
+      const notStarted = c.startDate && ym(c.startDate) > only;
+      const paidUpTo = notStarted ? 0 : Math.min(+c.term||0, creditPaidUpTo(c, only));
+      const leftInMonth = notStarted ? (+c.term||0) : Math.max(0, (+c.term||0) - paidUpTo);
+      credits.push([c.name||'',c.entity||'',c.type||'',n(c.payment),pg?'Sí':'No',n(pg?(+c.payment||0):0),n((+c.payment||0)*leftInMonth)]);
+    });
   } else {
     credits=[['Nombre','Entidad','Tipo','Cuota mensual','Plazo','Cuotas pagadas','Cuotas restantes','Deuda pendiente','Tasa % anual','Día de pago','Primera cuota','Meses pagados']];
     S.credits.forEach(c=>{const pc=creditPaidCount(c),left=creditTermLeft(c);const months=(c.payments||[]).filter(p=>p.month).map(p=>p.month).join(', ');
