@@ -1817,9 +1817,9 @@ function creditPaidUpTo(c, m){
 // Totales de crédito considerando el mes consultado (preserva deuda histórica real y planificada de ese mes):
 function creditTotals(m){
   const targetMonth = m || currentMonth;
-  let planRemaining=0, planCuotasLeft=0;
-  let realRemaining=0, realCuotasLeft=0;
+  let remaining=0, cuotasLeft=0;
   let paidAmt=0, monthly=0, activeCredits=0;
+  let paidThisMonthCount=0;
 
   S.credits.forEach(c=>{
     const term = +c.term || 0;
@@ -1828,42 +1828,41 @@ function creditTotals(m){
     const payments = Array.isArray(c.payments) ? c.payments : [];
 
     // Pagos registrados en meses POSTERIORES al mes consultado (estrictamente > targetMonth)
+    // En targetMonth, esas cuotas futuras aún NO se habían pagado
     const futurePaidCount = payments.filter(p => p.month && p.month > targetMonth).length;
 
-    // ¿Se pagó la cuota en este mes específico?
-    const paidThisMonth = creditPaidInMonth(c, targetMonth);
+    // Cuotas pendientes al corte de targetMonth:
+    // las que faltan hoy + las que se pagaron en meses futuros
+    const leftInMonth = Math.min(term, Math.max(0, leftNow + futurePaidCount));
 
-    // En targetMonth, cuotas pendientes al finalizar el mes
-    const leftReal = Math.min(term, Math.max(0, leftNow + futurePaidCount));
+    const remInMonth = pay * leftInMonth;
+    remaining += remInMonth;
+    cuotasLeft += leftInMonth;
 
-    // En targetMonth, cuotas pendientes al inicio del mes (antes del pago del mes)
-    const leftPlan = Math.min(term, Math.max(0, leftReal + (paidThisMonth ? 1 : 0)));
-
-    planRemaining += pay * leftPlan;
-    planCuotasLeft += leftPlan;
-
-    realRemaining += pay * leftReal;
-    realCuotasLeft += leftReal;
-
-    const paidUpTo = Math.max(0, term - leftReal);
+    const paidUpTo = Math.max(0, term - leftInMonth);
     paidAmt += pay * paidUpTo;
 
-    if(leftReal > 0 || leftPlan > 0 || leftNow > 0) {
-      if(leftReal > 0 || leftNow > 0) monthly += pay;
+    if(creditPaidInMonth(c, targetMonth)){
+      paidThisMonthCount++;
+    }
+
+    if(leftInMonth > 0 || leftNow > 0) {
+      monthly += pay;
       activeCredits++;
     }
   });
 
   return {
-    remaining: realRemaining,
-    planRemaining,
-    planCuotasLeft,
-    realRemaining,
-    realCuotasLeft,
+    remaining,
+    planRemaining: remaining,
+    planCuotasLeft: cuotasLeft,
+    realRemaining: remaining,
+    realCuotasLeft: cuotasLeft,
     paidAmt,
     monthly,
-    cuotasLeft: realCuotasLeft,
-    active: activeCredits
+    cuotasLeft,
+    active: activeCredits,
+    paidThisMonthCount
   };
 }
 function investTotals(){
@@ -2461,8 +2460,12 @@ function renderDashboard(){
     sbNetHEl.innerHTML=inc>0?`Ahorro proyectado: <b>${(netBud/inc*100).toFixed(0)}%</b>`:'Sin ingresos proyectados';
   }
 
-  const sbDebtEl=document.getElementById('sbDebt');if(sbDebtEl)sbDebtEl.textContent=money(ct.planRemaining);
-  const sbDebtHEl=document.getElementById('sbDebtHint');if(sbDebtHEl)sbDebtHEl.textContent=ct.planCuotasLeft>0?ct.planCuotasLeft+' cuotas · '+money(ct.monthly)+'/mes':'Sin deudas 🎉';
+  const debtHintText = ct.cuotasLeft<=0 ? 'Sin deudas 🎉' : (
+    (ct.paidThisMonthCount>0 ? '<span class="pos">✓ Cuota pagada este mes</span> · ' : '') + `${ct.cuotasLeft} cuotas · ${money(ct.monthly)}/mes`
+  );
+
+  const sbDebtEl=document.getElementById('sbDebt');if(sbDebtEl)sbDebtEl.textContent=money(ct.remaining);
+  const sbDebtHEl=document.getElementById('sbDebtHint');if(sbDebtHEl)sbDebtHEl.innerHTML=debtHintText;
 
   // --- Datos Ejecutados / Reales ---
   document.getElementById('sIncome').textContent=money(inc);
@@ -2474,8 +2477,8 @@ function renderDashboard(){
   const t=investTotals();
   document.getElementById('sWorth').textContent=money(t.bal);
   document.getElementById('sWorthHint').innerHTML=t.gain>=0?`<span class="pos">▲ ${money(t.gain)}</span> de ganancia`:`<span class="neg">▼ ${money(Math.abs(t.gain))}</span> de pérdida`;
-  document.getElementById('sDebt').textContent=money(ct.realRemaining);
-  document.getElementById('sDebtHint').textContent=ct.realCuotasLeft>0?ct.realCuotasLeft+' cuotas · '+money(ct.monthly)+'/mes':'Sin deudas 🎉';
+  document.getElementById('sDebt').textContent=money(ct.remaining);
+  const sDebtHEl=document.getElementById('sDebtHint');if(sDebtHEl)sDebtHEl.innerHTML=debtHintText;
 
   renderBudgetVsSpent();
   drawBarChart();drawDonut();renderRule();renderHealth();renderAlerts();
@@ -2695,9 +2698,10 @@ function exportXLSX(){
     credits=[['Nombre','Entidad','Tipo','Cuota mensual','¿Pagada en el mes?','Egreso del mes','Deuda pendiente en el mes']];
     S.credits.forEach(c=>{
       const pg=creditPaidInMonth(c,only);
-      const notStarted = c.startDate && ym(c.startDate) > only;
-      const paidUpTo = notStarted ? 0 : Math.min(+c.term||0, creditPaidUpTo(c, only));
-      const leftInMonth = notStarted ? (+c.term||0) : Math.max(0, (+c.term||0) - paidUpTo);
+      const term=+c.term||0;
+      const payments = Array.isArray(c.payments) ? c.payments : [];
+      const futurePaidCount = payments.filter(p => p.month && p.month > only).length;
+      const leftInMonth = Math.min(term, Math.max(0, creditTermLeft(c) + futurePaidCount));
       credits.push([c.name||'',c.entity||'',c.type||'',n(c.payment),pg?'Sí':'No',n(pg?(+c.payment||0):0),n((+c.payment||0)*leftInMonth)]);
     });
   } else {
